@@ -61,7 +61,6 @@ Art management: open http://<pi-hostname>.local:8080/admin in any browser
          on your network to upload marquee PNGs (drag and drop), see what
          is installed, and delete files. Files must be named by MAME short
          name (mslug.png, kof95.png, ...) plus generic.png as fallback.
-v1.1
 """
 
 import argparse
@@ -77,7 +76,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.1.2"
+VERSION = "1.3.4"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -88,44 +87,130 @@ RAM_SLOT = 4  # zero-based: flash slots 1-4 announce as 0-3, RAM as 4
 ART_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "art")
 LASTGAME_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lastgame.json")
 GENERIC = "generic"  # art/generic.png — fallback marquee for the overlay
+
+# --manual mode: this panel has no NeoSD Pro behind it (a real cartridge
+# can't announce itself), so what it shows is picked by hand from the
+# admin page and remembered here.
+SELECTION_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "selection.json")
+
+
+def read_selection():
+    try:
+        with open(SELECTION_PATH) as f:
+            return json.load(f).get("short")
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def write_selection(short_name):
+    try:
+        with open(SELECTION_PATH, "w") as f:
+            json.dump({"short": short_name}, f)
+    except OSError:
+        pass
+
+
+# --art-source: with more than one panel, the primary Pi holds the art
+# library and every other panel fetches from it, so there is one folder to
+# maintain instead of one per display. Fetched files are cached locally so
+# a brief network outage doesn't blank the marquee.
+
+def remote_art_list(base_url):
+    """Art filenames available on the primary, or None if unreachable."""
+    try:
+        import urllib.request
+        with urllib.request.urlopen(base_url.rstrip("/") + "/list",
+                                    timeout=3) as r:
+            names = json.loads(r.read().decode())
+        return [n for n in names if isinstance(n, str) and n.endswith(".png")]
+    except Exception:
+        return None
+
+
+def fetch_remote_art(base_url, short_name, art_dir):
+    """Pull one PNG from the primary into the local cache.
+
+    Returns True if a usable local copy exists afterwards — including the
+    case where the download failed but a previous copy is still cached."""
+    safe = _safe_art_name(short_name + ".png")
+    if not safe:
+        return False
+    dest = os.path.join(art_dir, safe)
+    try:
+        import urllib.request
+        url = base_url.rstrip("/") + "/art/" + safe
+        with urllib.request.urlopen(url, timeout=5) as r:
+            data = r.read()
+        if data[:8] == PNG_MAGIC:
+            tmp = dest + ".part"
+            with open(tmp, "wb") as f:
+                f.write(data)
+            os.replace(tmp, dest)  # atomic: never leave a half-written PNG
+            return True
+    except Exception:
+        pass
+    return os.path.exists(dest)
 CAL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibration.json")
 
 # MVS mini-marquee cards are a standard 4.44 x 5.44 inches on every cab,
 # so the correct window aspect is a constant: height = width * this.
 MARQUEE_ASPECT = 5.44 / 4.44
 
-# Only 90/270 are valid rotations for this portrait-mounted panel; they
-# are 180 degrees apart, which inverts how on-panel motion maps to the
-# logical canvas. INVERT_DPAD_AT is the orientation that needs its D-pad
-# translation negated so the arrows always mean physical up/down/left/
-# right on the panel. Verified on hardware: at 90 the mapping is
-# inverted and needs the negation; at 270 it is already correct.
-INVERT_DPAD_AT = 90
+# Which physical edge a panel's ribbon cable exits decides which way the
+# D-pad needs to be corrected, and that's an installation detail, not
+# something derivable from the rotate angle alone (two different panels
+# tonight needed two different corrections at the same math). So this is
+# an empirical, per-panel setting instead of a formula: DPAD_CYCLE is the
+# compass in on-screen order, and dpad_offset (0/90/180/270, stored in
+# calibration.json) says how many steps to rotate it before applying the
+# base identity vectors. One click of "D-pad" in the admin page advances
+# it; Save remembers it. Works regardless of what pygame's rotation
+# convention actually does internally.
+DPAD_IDENTITY = {"up": (0, -1), "right": (1, 0), "down": (0, 1), "left": (-1, 0)}
+DPAD_CYCLE = ["up", "right", "down", "left"]
+
+
+def physical_delta(dpad_offset, direction, step):
+    if direction not in DPAD_CYCLE:
+        return 0, 0
+    shift = (int(dpad_offset) // 90) % 4
+    i = DPAD_CYCLE.index(direction)
+    eff_dir = DPAD_CYCLE[(i + shift) % 4]
+    ux, uy = DPAD_IDENTITY[eff_dir]
+    return ux * step, uy * step
 
 # Commands from the web admin page's live calibration controls, drained
 # by the main thread only (SDL/KMS rendering is not thread-safe).
 CAL_QUEUE = queue.Queue()
 
+# Sleep/Wake requests from the admin page. Same reason as CAL_QUEUE: SDL
+# and DRM calls must happen on the main thread, not in an HTTP handler.
+DISPLAY_QUEUE = queue.Queue()
+
 
 def load_calibration():
-    """Return ([x, y, w, h], tilt_degrees, rotate_or_None), or None.
+    """Return ([x, y, w, h], tilt_degrees, rotate_or_None, dpad_offset), or None.
 
     rotate is only present once something has saved it (the web "Flip"
     button, or the CLI calibrator preserving it on save). When absent,
-    the caller should fall back to the --rotate launch argument."""
+    the caller should fall back to the --rotate launch argument.
+    dpad_offset defaults to 0 (no correction) until "D-pad" is used."""
     try:
         with open(CAL_PATH) as f:
             c = json.load(f)
         rect = [int(c["x"]), int(c["y"]), int(c["w"]), int(c["h"])]
         rot = c.get("rotate")
-        return rect, float(c.get("tilt", 0.0)), (int(rot) if rot is not None else None)
+        return (rect, float(c.get("tilt", 0.0)),
+               (int(rot) if rot is not None else None),
+               int(c.get("dpad_offset", 0)))
     except (OSError, ValueError, KeyError):
         return None
 
 
-def save_calibration(rect, tilt=0.0, rotate=None):
+def save_calibration(rect, tilt=0.0, rotate=None, dpad_offset=0):
     data = {"x": rect[0], "y": rect[1], "w": rect[2], "h": rect[3],
-            "tilt": round(tilt, 2)}
+            "tilt": round(tilt, 2), "dpad_offset": int(dpad_offset) % 360}
     if rotate is not None:
         data["rotate"] = int(rotate)
     with open(CAL_PATH, "w") as f:
@@ -327,6 +412,29 @@ ADMIN_HTML = """<!DOCTYPE html>
   <small style="color:#888;font-weight:normal;font-size:0.7em">v{{VERSION}}</small></h1></header>
 <main>
 
+<section id="sec-showing" class="hidden">
+  <h2>Now showing</h2>
+  <p class="hint">This panel has no NeoSD Pro behind it, so pick its
+    marquee here. It stays until you change it.</p>
+  <div class="cal-row">
+    <select id="sel"><option value="">(generic marquee)</option></select>
+    <button class="btn primary" id="sel-set">Show it</button>
+    <span id="sel-now" style="color:var(--text-secondary);font-size:0.85rem"></span>
+  </div>
+</section>
+
+<section>
+  <h2>Display power</h2>
+  <p class="hint">Blank the panel and let its backlight switch off, or
+    bring it back. Sleeping by hand stays in effect until you wake it
+    here, even if the cabinet powers on.</p>
+  <div class="cal-row">
+    <button class="btn" id="pwr-sleep">Sleep</button>
+    <button class="btn" id="pwr-wake">Wake</button>
+    <span id="pwr-now" style="color:var(--text-secondary);font-size:0.85rem"></span>
+  </div>
+</section>
+
 <section>
   <h2>Calibrate Marquee</h2>
   <p class="hint">Positions and sizes the image to match your physical
@@ -359,6 +467,10 @@ ADMIN_HTML = """<!DOCTYPE html>
         </div>
         <div class="cal-row">
           <button id="cal-flip" class="btn">Flip 180&deg; (if upside down)</button>
+        </div>
+        <div class="cal-row">
+          <button id="cal-dpad" class="btn">D-pad: 0&deg;</button>
+          <span class="hint" style="margin:0">click if arrows go the wrong way</span>
         </div>
         <div class="cal-row">
           <button id="cal-preview" class="btn">Preview: Test Pattern</button>
@@ -432,6 +544,75 @@ drop.ondrop = e => { e.preventDefault(); drop.classList.remove('hot');
                      upload(e.dataTransfer.files); };
 refresh();
 
+// ------------------------------------------------- mode / power / picker
+const sel = document.getElementById('sel');
+const selNow = document.getElementById('sel-now');
+const pwrNow = document.getElementById('pwr-now');
+let isManual = false;
+
+let selListCache = [];  // last-known art list, so we only rebuild the
+                        // <select> when it actually changes
+
+async function refreshMode() {
+  let m;
+  try { m = await (await fetch('/mode')).json(); } catch (_) { return; }
+  isManual = !!m.manual;
+  document.getElementById('sec-showing').classList.toggle('hidden', !isManual);
+  pwrNow.textContent = m.asleep
+    ? (m.manual_sleep ? 'asleep (by hand)' : 'asleep')
+    : 'awake';
+  if (isManual) {
+    if (selListCache.length === 0) await refreshSelList();  // once, on load
+    refreshSelCurrent();  // cheap: just the "currently showing" text
+  }
+}
+
+async function refreshSelList() {
+  let files;
+  try { files = await (await fetch('/list')).json(); } catch (_) { return; }
+  const changed = files.length !== selListCache.length ||
+    files.some((f, i) => f !== selListCache[i]);
+  if (!changed) return;
+  selListCache = files;
+  // Never rebuild while the person has the dropdown open — that's the
+  // flashing/yanked-list bug: a periodic poll shouldn't touch a control
+  // someone is actively using.
+  if (document.activeElement === sel) return;
+  const keep = sel.value;
+  sel.innerHTML = '<option value="">(generic marquee)</option>';
+  for (const f of files) {
+    if (f === 'generic.png') continue;
+    const short = f.replace(/\.png$/, '');
+    const o = document.createElement('option');
+    o.value = short; o.textContent = short;
+    sel.appendChild(o);
+  }
+  sel.value = keep;
+}
+
+async function refreshSelCurrent() {
+  let cur = null;
+  try { cur = (await (await fetch('/selection')).json()).short; } catch (_) { return; }
+  selNow.textContent = cur ? ('currently: ' + cur) : 'currently: generic';
+  if (document.activeElement !== sel) sel.value = cur || '';
+}
+
+document.getElementById('sel-set').onclick = async () => {
+  await fetch('/select?name=' + encodeURIComponent(sel.value), {method: 'POST'});
+  refreshSelCurrent();
+};
+document.getElementById('pwr-sleep').onclick = async () => {
+  await fetch('/display/sleep', {method: 'POST'});
+  setTimeout(refreshMode, 400);
+};
+document.getElementById('pwr-wake').onclick = async () => {
+  await fetch('/display/wake', {method: 'POST'});
+  setTimeout(refreshMode, 400);
+};
+
+refreshMode();
+setInterval(refreshMode, 5000);
+
 // ----------------------------------------------------- live calibration
 const STEPS = [5, 1, 20];
 let stepI = 0;
@@ -441,6 +622,7 @@ const calPanel = document.getElementById('cal-panel');
 const calReadout = document.getElementById('cal-readout');
 const calStepBtn = document.getElementById('cal-step');
 const calFlipBtn = document.getElementById('cal-flip');
+const calDpadBtn = document.getElementById('cal-dpad');
 const calPreviewBtn = document.getElementById('cal-preview');
 
 async function calPost(path, params) {
@@ -457,10 +639,12 @@ async function refreshCalState() {
   calEnterBtn.classList.toggle('hidden', s.active);
   if (s.active) {
     calReadout.textContent = 'x=' + s.x + ' y=' + s.y + ' w=' + s.w +
-      ' h=' + s.h + ' tilt=' + s.tilt.toFixed(1) + ' rotate=' + s.rotate;
+      ' h=' + s.h + ' tilt=' + s.tilt.toFixed(1) + ' rotate=' + s.rotate +
+      ' dpad=' + (s.dpad_offset || 0);
     previewMode = s.preview || 'pattern';
     calPreviewBtn.textContent = 'Preview: ' +
       (previewMode === 'art' ? 'Marquee Art' : 'Test Pattern');
+    calDpadBtn.textContent = 'D-pad: ' + (s.dpad_offset || 0) + '\u00b0';
   }
 }
 
@@ -481,6 +665,7 @@ document.querySelectorAll('[data-tilt]').forEach(b => {
   b.onclick = () => calPost('/calibrate/tilt', {delta: b.dataset.tilt});
 });
 calFlipBtn.onclick = () => calPost('/calibrate/flip');
+calDpadBtn.onclick = () => calPost('/calibrate/dpad');
 calPreviewBtn.onclick = () => {
   previewMode = previewMode === 'art' ? 'pattern' : 'art';
   calPost('/calibrate/preview', {mode: previewMode});
@@ -545,18 +730,32 @@ class OverlayServer:
                     self._send(200, "text/html; charset=utf-8",
                                page.encode("utf-8"))
                 elif path == "/list":
-                    try:
-                        names = sorted(n for n in os.listdir(server.art_dir)
-                                       if n.endswith(".png"))
-                    except OSError:
-                        names = []
+                    names = None
+                    src_url = getattr(server, "art_source", None)
+                    if src_url:
+                        names = remote_art_list(src_url)
+                    if names is None:  # no source, or it's unreachable
+                        try:
+                            names = sorted(n for n in os.listdir(server.art_dir)
+                                           if n.endswith(".png"))
+                        except OSError:
+                            names = []
                     self._send(200, "application/json",
-                               json.dumps(names).encode())
+                               json.dumps(sorted(names)).encode())
                 elif path == "/current":
                     with server._lock:
                         cur = server._current
                     body = json.dumps(cur or {"short": None}).encode()
                     self._send(200, "application/json", body)
+                elif path == "/mode":
+                    self._send(200, "application/json", json.dumps({
+                        "manual": bool(getattr(server, "manual", False)),
+                        "asleep": server.display.screen is None,
+                        "manual_sleep": server.display.manual_sleep,
+                    }).encode())
+                elif path == "/selection":
+                    self._send(200, "application/json",
+                               json.dumps({"short": read_selection()}).encode())
                 elif path == "/calibrate/state":
                     self._send(200, "application/json",
                                json.dumps(self._cal_state()).encode())
@@ -574,10 +773,12 @@ class OverlayServer:
                     w = d.cal_work
                     return {"active": True, "x": w["x"], "y": w["y"],
                            "w": w["w"], "h": w["h"], "tilt": w["tilt"],
-                           "rotate": w["rotate"], "preview": w["preview"]}
+                           "rotate": w["rotate"], "preview": w["preview"],
+                           "dpad_offset": w.get("dpad_offset", 0)}
                 return {"active": False, "x": d.rect.x, "y": d.rect.y,
                        "w": d.rect.w, "h": d.rect.h, "tilt": d.tilt,
-                       "rotate": d.rotate, "preview": "pattern"}
+                       "rotate": d.rotate, "preview": "pattern",
+                       "dpad_offset": getattr(d, "dpad_offset", 0)}
 
             def do_POST(self):
                 path, _, query = self.path.partition("?")
@@ -591,10 +792,31 @@ class OverlayServer:
                     self._handle_upload(params.get("name", ""))
                 elif path == "/delete":
                     self._handle_delete(params.get("name", ""))
+                elif path == "/select":
+                    self._handle_select(params.get("name", ""))
+                elif path == "/display/sleep":
+                    DISPLAY_QUEUE.put(("sleep",))
+                    self._send(200, "text/plain", b"ok")
+                elif path == "/display/wake":
+                    DISPLAY_QUEUE.put(("wake",))
+                    self._send(200, "text/plain", b"ok")
                 elif path.startswith("/calibrate/"):
                     self._handle_calibrate(path[len("/calibrate/"):], params)
                 else:
                     self._send(404, "text/plain", b"not found")
+
+            def _handle_select(self, raw):
+                # Empty is valid: show the generic marquee.
+                if raw == "":
+                    write_selection(None)
+                    self._send(200, "text/plain", b"cleared")
+                    return
+                safe = _safe_art_name(raw + ".png")
+                if not safe:
+                    self._send(400, "text/plain", b"bad name")
+                    return
+                write_selection(safe[:-4])
+                self._send(200, "text/plain", safe.encode())
 
             def _handle_calibrate(self, action, params):
                 # All of these just enqueue a command for the main thread
@@ -615,6 +837,8 @@ class OverlayServer:
                         CAL_QUEUE.put(("tilt", float(params.get("delta", "0"))))
                     elif action == "flip":
                         CAL_QUEUE.put(("flip",))
+                    elif action == "dpad":
+                        CAL_QUEUE.put(("dpad",))
                     elif action == "preview":
                         CAL_QUEUE.put(("preview", params.get("mode", "pattern")))
                     else:
@@ -731,11 +955,16 @@ class Display:
         phys = self.screen.get_size()
 
         cal = load_calibration()
-        rect_l, tilt, saved_rotate = cal if cal else (None, 0.0, None)
+        rect_l, tilt, saved_rotate, saved_dpad = cal if cal else (None, 0.0, None, 0)
         # A rotate saved via the web "Flip" button overrides the --rotate
         # launch flag, so flipping never requires editing the systemd
         # unit again once it's been set once.
         self.rotate = (saved_rotate if saved_rotate is not None else rotate) % 360
+        # Which physical edge this panel's ribbon exits decides which way
+        # the D-pad needs correcting — an installation detail, not
+        # something derivable from the rotate angle. 0 = no correction
+        # until the admin page's "D-pad" button has been used once.
+        self.dpad_offset = saved_dpad
 
         # Logical canvas: what we compose art onto. For 90/270 the canvas
         # is the physical screen turned on its side. (90 and 270 share
@@ -758,6 +987,13 @@ class Display:
         self.calibrating = False
         self.cal_work = None
         self._cal_sample = None  # lazily-loaded generic.png for art preview
+        # Set when the user sleeps the panel from the admin page. While
+        # true, the automatic (cab-power) wake path leaves the panel
+        # alone — only an explicit Wake clears it.
+        self.manual_sleep = False
+        self.wake_count = 0  # bumped on every wake() so callers can force
+                             # a redraw even when the selection is unchanged
+        self.restore_callback = None  # set by main() — see _restore_last_display
 
         self.blank()
 
@@ -860,13 +1096,21 @@ class Display:
         board loses signal and drops to standby (backlight off)."""
         if self.screen is None or self.calibrating:
             return
+        # (manual_sleep is set by the caller for admin-page sleeps)
         pygame.display.quit()
         self.screen = None
         _fb_blank(4)
         print("[MarqueeMark] display sleeping")
 
-    def wake(self):
-        """Restore video output and re-acquire the screen."""
+    def wake(self, force=False):
+        """Restore video output and re-acquire the screen.
+
+        force=True is the admin page's explicit Wake; it also clears the
+        manual-sleep latch. Automatic wakes respect that latch."""
+        if force:
+            self.manual_sleep = False
+        elif self.manual_sleep:
+            return
         if self.screen is not None:
             return
         _fb_blank(0)
@@ -874,6 +1118,7 @@ class Display:
         pygame.mouse.set_visible(False)
         self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
         self.current = None
+        self.wake_count += 1
         print("[MarqueeMark] display awake")
 
     def pump(self):
@@ -893,6 +1138,22 @@ class Display:
     # thread, once per loop tick — see process_calibration_queue() call
     # sites in main(). This lets a browser move/resize/flip/tilt the
     # marquee live while the service keeps running, no SSH required.
+
+    def process_display_queue(self):
+        """Apply admin-page Sleep/Wake requests. Main thread only."""
+        while True:
+            try:
+                cmd = DISPLAY_QUEUE.get_nowait()
+            except queue.Empty:
+                break
+            if self.calibrating:
+                continue  # a live calibration session owns the screen
+            if cmd[0] == "sleep":
+                self.manual_sleep = True
+                self.sleep()
+            elif cmd[0] == "wake":
+                self.wake(force=True)
+                self.current = None  # force a redraw on the next show_*
 
     def process_calibration_queue(self):
         changed = False
@@ -915,6 +1176,7 @@ class Display:
             self.cal_work = {"x": self.rect.x, "y": self.rect.y,
                              "w": self.rect.w, "h": self.rect.h,
                              "tilt": self.tilt, "rotate": self.rotate,
+                             "dpad_offset": self.dpad_offset,
                              "preview": "pattern"}
             return
         if not self.calibrating or self.cal_work is None:
@@ -929,27 +1191,27 @@ class Display:
             self.rect = pygame.Rect(w["x"], w["y"], w["w"], w["h"])
             self.tilt = w["tilt"]
             self.rotate = w["rotate"]
+            self.dpad_offset = w["dpad_offset"]
             save_calibration([self.rect.x, self.rect.y, self.rect.w, self.rect.h],
-                             self.tilt, self.rotate)
-            print("[MarqueeMark v%s] calibration saved: rect=%s tilt=%.2f rotate=%d"
+                             self.tilt, self.rotate, self.dpad_offset)
+            print("[MarqueeMark v%s] calibration saved: rect=%s tilt=%.2f "
+                  "rotate=%d dpad_offset=%d"
                   % (VERSION, [self.rect.x, self.rect.y, self.rect.w, self.rect.h],
-                     self.tilt, self.rotate))
+                     self.tilt, self.rotate, self.dpad_offset))
             self.calibrating = False
             self.cal_work = None
             self._restore_last_display()
             return
         if op == "move":
             _, direction, step = cmd
-            dx, dy = {"up": (0, -step), "down": (0, step),
-                     "left": (-step, 0), "right": (step, 0)}.get(direction, (0, 0))
-            # The D-pad always means physical up/down/left/right on the
-            # panel. The two supported rotations (90/270) are 180 degrees
-            # apart, which inverts translation on screen — correct for it
-            # so the arrows never feel backwards after a Flip.
-            if w["rotate"] == INVERT_DPAD_AT:
-                dx, dy = -dx, -dy
+            dx, dy = physical_delta(w["dpad_offset"], direction, step)
             w["x"] += dx
             w["y"] += dy
+        elif op == "dpad":
+            # Cycle the empirical D-pad correction 0->90->180->270->0.
+            # Purely a labeling change — doesn't move or resize anything,
+            # just changes which way future arrow presses go.
+            w["dpad_offset"] = (w.get("dpad_offset", 0) + 90) % 360
         elif op == "size":
             _, delta = cmd
             neww = max(40, w["w"] + delta)
@@ -1006,7 +1268,14 @@ class Display:
 
     def _restore_last_display(self):
         """After leaving a calibration session, redraw whatever should be
-        showing: the active game if known, else blank."""
+        showing. This differs by mode — NeoSD mode looks up the last known
+        game; --manual mode looks up the admin page's selection — so
+        main() sets restore_callback appropriately. Falls back to the
+        NeoSD-style lookup if nothing set one (keeps this class usable
+        standalone, e.g. under --calibrate)."""
+        if self.restore_callback:
+            self.restore_callback()
+            return
         state = load_state()
         active = state.get("active") if state else None
         if active:
@@ -1046,9 +1315,11 @@ def calibrate(display):
     if cal:
         r = pygame.Rect(*cal[0])
         tilt = cal[1]
+        dpad_offset = cal[3]
     else:
         r = default_rect()
         tilt = 0.0
+        dpad_offset = 0
 
     def clamp():
         r.w = max(40, min(r.w, display.size[0]))
@@ -1082,8 +1353,9 @@ def calibrate(display):
                 box = pygame.transform.rotozoom(box, tilt, 1.0)
             surf.blit(box, box.get_rect(center=r.center))
         display._present(surf)
-        sys.stdout.write("\r  rect x=%-5d y=%-5d w=%-5d h=%-5d tilt=%-6.1f step=%-3d   "
-                         % (r.x, r.y, r.w, r.h, tilt, steps[step_i]))
+        sys.stdout.write("\r  rect x=%-5d y=%-5d w=%-5d h=%-5d tilt=%-6.1f "
+                         "dpad=%-3d step=%-3d   "
+                         % (r.x, r.y, r.w, r.h, tilt, dpad_offset, steps[step_i]))
         sys.stdout.flush()
 
     print("Calibration: arrows = move | +/- = size (proportions always locked)")
@@ -1110,13 +1382,22 @@ def calibrate(display):
                 ch = ch[:3]  # normalize to the arrow sequence
             s = steps[step_i]
             if ch == "\x1b[A":
-                r.y -= s
+                dx, dy = physical_delta(dpad_offset, "up", s)
+                r.x += dx; r.y += dy
             elif ch == "\x1b[B":
-                r.y += s
+                dx, dy = physical_delta(dpad_offset, "down", s)
+                r.x += dx; r.y += dy
             elif ch == "\x1b[D":
-                r.x -= s
+                dx, dy = physical_delta(dpad_offset, "left", s)
+                r.x += dx; r.y += dy
             elif ch == "\x1b[C":
-                r.x += s
+                dx, dy = physical_delta(dpad_offset, "right", s)
+                r.x += dx; r.y += dy
+            elif ch == "d":
+                # If the arrows feel backwards or rotated on this specific
+                # panel, cycle the correction — same as the admin page's
+                # "D-pad" button.
+                dpad_offset = (dpad_offset + 90) % 360
             elif ch in ("+", "="):
                 r.w += s; r.h = round(r.w * MARQUEE_ASPECT)
             elif ch == "-":
@@ -1141,9 +1422,10 @@ def calibrate(display):
                 # Preserve whatever rotate is currently in effect (which
                 # may have been set via the web "Flip" button) so this
                 # offline save doesn't silently drop it.
-                save_calibration([r.x, r.y, r.w, r.h], tilt, display.rotate)
-                print("\nsaved %s tilt=%.2f rotate=%d"
-                      % ([r.x, r.y, r.w, r.h], tilt, display.rotate))
+                save_calibration([r.x, r.y, r.w, r.h], tilt, display.rotate,
+                                 dpad_offset)
+                print("\nsaved %s tilt=%.2f rotate=%d dpad_offset=%d"
+                      % ([r.x, r.y, r.w, r.h], tilt, display.rotate, dpad_offset))
             elif ch in ("q", "\x03"):
                 print("\ndone")
                 return
@@ -1174,42 +1456,23 @@ def frames(port):
 
 # ----------------------------------------------------------------- main
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--port", default="/dev/ttyACM0")
-    ap.add_argument("--art", default=ART_DIR)
-    ap.add_argument("--http-port", type=int, default=8080)
-    ap.add_argument("--rotate", type=int, default=0, choices=[0, 90, 180, 270],
-                    help="rotate output for panel mounting orientation")
-    ap.add_argument("--calibrate", action="store_true",
-                    help="interactive window calibration, then exit")
-    ap.add_argument("--keep-awake", action="store_true",
-                    help="never sleep the display on link loss")
-    ap.add_argument("--idle", choices=["blank", "generic"], default="blank",
-                    help="with no NeoSD link: blank (default; marquee goes dark "
-                         "with the cab) or generic (stays lit — for users "
-                         "running real MVS carts in this slot)")
-    args = ap.parse_args()
+def _poll_sleep_source(url):
+    """True = should sleep, False = stay awake, None = couldn't reach it.
 
-    display = Display(args.art, rotate=args.rotate)
-
-    if args.calibrate:
-        calibrate(display)
-        pygame.quit()
-        return
-
-    overlay = None
+    Reads another MarqueeMark's /current endpoint, which reports the
+    running game or a null short name when its NeoSD link is gone (cab
+    off). Read-only, so the machine being polled needs no changes."""
     try:
-        overlay = OverlayServer(args.art, args.http_port, display)
-        overlay.start()
-    except OSError as e:
-        # Overlay is a bonus; never let it stop the physical marquee.
-        print("[MarqueeMark] overlay disabled (%s)" % e)
+        import urllib.request
+        with urllib.request.urlopen(url, timeout=2) as r:
+            data = json.loads(r.read().decode())
+        return data.get("short") is None
+    except Exception:
+        return None
 
-    def publish(game):
-        if overlay:
-            overlay.publish(game)
 
+def run_neosd(args, display, publish, overlay):
+    """Normal mode: this panel follows a NeoSD Pro on the local USB port."""
     last = None
     idle_shown = False
     lost_cycles = 0
@@ -1221,8 +1484,6 @@ def main():
                 idle_shown = False
                 lost_cycles = 0
 
-                # Cab just powered on (or USB reconnected): the NeoSD
-                # auto-boots Flash Slot 1 silently, so restore it.
                 restored = boot_game(load_state())
                 if restored:
                     print("[MarqueeMark] restoring NGH-%s %s (slot %s)"
@@ -1231,15 +1492,12 @@ def main():
                     publish(restored)
                     last = (restored["ngh"], restored["short"])
                 else:
-                    # Nothing known yet (fresh install, or the slot map has
-                    # not seen Flash Slot 1 announced). The cart stays
-                    # silent until a game is loaded, so show the generic
-                    # marquee rather than leaving the panel black.
                     print("[MarqueeMark] no known game yet, showing generic marquee")
                     display.show_idle()
                     publish(None)
 
                 for frame in frames(port):
+                    display.process_display_queue()
                     display.process_calibration_queue()
                     if not display.pump():
                         pygame.quit()
@@ -1249,7 +1507,7 @@ def main():
                     game = parse_frame(frame)
                     key = (game["ngh"], game["short"])
                     if key == last:
-                        continue  # duplicate announcement (common on RAM loads)
+                        continue
                     last = key
                     print("[MarqueeMark] NGH-%s %s \"%s\" (slot %s)"
                           % (game["ngh"], game["short"], game["title"], game["slot"]))
@@ -1257,9 +1515,6 @@ def main():
                     display.show_game(game)
                     publish(game)
         except (serial.SerialException, OSError):
-            # No NeoSD link: cab off, cable unplugged, or a real MVS
-            # cart in the slot. Show the idle marquee (generic art by
-            # default) — once per disconnection, not every retry.
             if not idle_shown:
                 print("[MarqueeMark] no cart link — idle (%s)" % args.idle)
                 if args.idle == "generic":
@@ -1273,11 +1528,159 @@ def main():
             if lost_cycles == 10 and not args.keep_awake and not display.calibrating:
                 display.sleep()
             for _ in range(10):
+                display.process_display_queue()
                 display.process_calibration_queue()
                 if not display.pump():
                     pygame.quit()
                     sys.exit(0)
                 time.sleep(0.1)
+
+
+def run_manual(args, display, publish):
+    """--manual: no NeoSD Pro on this panel. The marquee is picked by hand
+    from the admin page. Optionally mirrors another MarqueeMark's cab-power
+    state via --sleep-source; otherwise sleep is entirely manual."""
+
+    def restore():
+        # Called after Save/Cancel in a live calibration session, so the
+        # panel goes back to whatever it should be showing. In --manual
+        # mode that is the admin page's selection, not NeoSD state.
+        want = read_selection()
+        if want:
+            display.show_game({"short": want, "title": want, "ngh": "---"})
+        else:
+            display.show_idle()
+
+    display.restore_callback = restore
+
+    shown = "__unset__"
+    auto_asleep = False
+    countdown = 0
+    last_wake_count = display.wake_count
+
+    print("[MarqueeMark v%s] manual mode (no NeoSD on this panel)" % VERSION)
+    if args.art_source:
+        print("[MarqueeMark] art library: %s" % args.art_source)
+        for name in (read_selection(), GENERIC):
+            if name:
+                fetch_remote_art(args.art_source, name, args.art)
+    if args.sleep_source:
+        print("[MarqueeMark] mirroring cab power from %s" % args.sleep_source)
+
+    while True:
+        display.process_display_queue()
+        display.process_calibration_queue()
+        if not display.pump():
+            pygame.quit()
+            sys.exit(0)
+
+        if not display.calibrating:
+            # Catches every wake, whichever way it happened: the admin
+            # page's Wake button, or the automatic --sleep-source path
+            # below. Without this, waking after a manual Sleep left the
+            # panel black until the page was refreshed and the marquee
+            # re-picked — the selection on disk hadn't changed, so the
+            # "did the selection change?" check below never redrew it.
+            if display.wake_count != last_wake_count:
+                last_wake_count = display.wake_count
+                shown = "__unset__"
+
+            if args.sleep_source and not args.keep_awake:
+                countdown -= 1
+                if countdown <= 0:
+                    countdown = 10  # ~1s between polls
+                    state = _poll_sleep_source(args.sleep_source)
+                    if state is not None:  # None = unreachable: hold as-is
+                        if state and not auto_asleep:
+                            print("[MarqueeMark] source reports cab off, sleeping")
+                            display.sleep()
+                            auto_asleep = True
+                        elif not state and auto_asleep:
+                            print("[MarqueeMark] source reports cab on, waking")
+                            display.wake()  # respects a manual sleep latch
+                            auto_asleep = False
+                            shown = "__unset__"
+
+            if display.screen is not None:
+                want = read_selection()
+                if want != shown:
+                    shown = want
+                    print("[MarqueeMark] showing: %s" % (want or "generic"))
+                    if args.art_source:
+                        # Refresh from the primary on every change, so
+                        # replacing art there propagates without touching
+                        # this Pi. Falls back to the cached copy offline.
+                        fetch_remote_art(args.art_source, want or GENERIC,
+                                         args.art)
+                    if want:
+                        display.show_game({"short": want, "title": want,
+                                          "ngh": "---"})
+                    else:
+                        display.show_idle()
+                    publish({"short": want} if want else None)
+
+        time.sleep(0.1)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--port", default="/dev/ttyACM0")
+    ap.add_argument("--art", default=ART_DIR)
+    ap.add_argument("--http-port", type=int, default=8080)
+    ap.add_argument("--rotate", type=int, default=90, choices=[0, 90, 180, 270],
+                    help="starting orientation for a panel that has never been "
+                         "calibrated. Defaults to 90 because a mini marquee is "
+                         "portrait; use the admin page's Flip button if it "
+                         "comes up upside down (that choice is saved and "
+                         "overrides this flag from then on). 0/180 are only "
+                         "for an unusual landscape mount.")
+    ap.add_argument("--calibrate", action="store_true",
+                    help="interactive terminal calibration, then exit")
+    ap.add_argument("--keep-awake", action="store_true",
+                    help="never sleep the display automatically")
+    ap.add_argument("--idle", choices=["blank", "generic"], default="blank",
+                    help="with no NeoSD link: blank (default; marquee goes dark "
+                         "with the cab) or generic (stays lit)")
+    ap.add_argument("--manual", action="store_true",
+                    help="no NeoSD Pro on this panel: pick the marquee by hand "
+                         "from the admin page. Use this for a second marquee "
+                         "on its own Pi, or for any cab without a NeoSD Pro.")
+    ap.add_argument("--art-source", default=None,
+                    help="--manual only: base URL of the primary MarqueeMark "
+                         "(e.g. http://marquee.local:8080). Art is pulled from "
+                         "there and cached locally, so the library lives in one "
+                         "place instead of being copied to every panel.")
+    ap.add_argument("--sleep-source", default=None,
+                    help="--manual only: URL of another MarqueeMark's /current "
+                         "endpoint (e.g. http://marquee.local:8080/current). "
+                         "This panel then sleeps and wakes with that cabinet. "
+                         "Omit to control sleep by hand from the admin page.")
+    args = ap.parse_args()
+
+    display = Display(args.art, rotate=args.rotate)
+
+    if args.calibrate:
+        calibrate(display)
+        pygame.quit()
+        return
+
+    overlay = None
+    try:
+        overlay = OverlayServer(args.art, args.http_port, display)
+        overlay.manual = args.manual  # admin page adapts to the mode
+        overlay.art_source = args.art_source
+        overlay.start()
+    except OSError as e:
+        print("[MarqueeMark] overlay disabled (%s)" % e)
+
+    def publish(game):
+        if overlay:
+            overlay.publish(game)
+
+    if args.manual:
+        run_manual(args, display, publish)
+    else:
+        run_neosd(args, display, publish, overlay)
 
 
 if __name__ == "__main__":
