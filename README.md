@@ -2,11 +2,14 @@
 
 [![Watch the build video](https://img.youtube.com/vi/57Q8elVT100/maxresdefault.jpg)](https://youtu.be/57Q8elVT100)
 
-**A digital mini-marquee for the Neo Geo MVS using NeoSD Pro.** MarqueeMark replaces a mini
-marquee card with a small LCD panel that *always shows the correct game*:
-it listens to a TerraOnion NeoSD Pro flash cart over USB and switches the
-marquee art the instant you load or change a game. It also serves a live
-"now playing" overlay for OBS so your stream always shows what's running.
+**A digital mini-marquee for the Neo Geo MVS.** MarqueeMark replaces a mini
+marquee card with a small LCD panel. With a TerraOnion NeoSD Pro flash
+cart, it *always shows the correct game*, switching the marquee art the
+instant you load or change one, no NeoSD Pro required if you'd rather
+just pick the game by hand instead (see
+[Using MarqueeMark without a NeoSD Pro](#using-marqueemark-without-a-neosd-pro)).
+It also serves a live "now playing" overlay for OBS so your stream always
+shows what's running.
 
 No original hardware is modified. The panel mounts to the back of the
 marquee plexi the same way the paper cards did, and everything is
@@ -28,6 +31,11 @@ reversible.
   update live. No SSH, no keyboard, no Linux required. Proportions are
   locked to the real mini-marquee card, so the image can never be
   stretched.
+- **Second marquee support**: a slot with a real cartridge instead of a
+  NeoSD Pro can't announce itself, so a second panel (on its own Pi) can
+  be set to manual mode instead. Pick its art from the same kind of admin
+  page, and it can pull its whole art library from the primary Pi and
+  mirror its sleep state automatically, or be put to sleep by hand.
 - **OBS stream overlay**: a browser source URL that shows the current
   game's mini-marquee art in the corner of your stream, updating live
 - **Browser art manager**: drag and drop your marquee PNGs onto a web page
@@ -40,22 +48,22 @@ reversible.
 | Part | Notes |
 |---|---|
 | [8" IPS LCD panel kit (1024x768, HDMI driver board)](https://amzn.to/4g3kyUs) | Chimei Innolux HJ080IA-01E class. Active area covers the standard 4.44" x 5.44" mini-marquee window with overscan to hide the bezel. Includes its own USB-to-barrel power lead, which can run from one of the Pi's USB-A ports. |
-| [CanaKit Raspberry Pi 4 Starter Kit (2 GB)](https://amzn.to/3SnVsro) | One box covers the Pi 4 Model B, the correct micro-HDMI display cable, a proper 3.5A USB-C power supply, a 32 GB microSD card, case, heatsinks, and an inline power switch. 2 GB of RAM is plenty; the Pi only renders images. Reflash the included SD card per step 1 (skip the pre-loaded image), and skip installing the fan: heatsinks alone are enough for this workload, and a fan just pulls cabinet dust through the case. |
+| [CanaKit Raspberry Pi 4 Starter Kit (2 GB)](https://amzn.to/3SnVsro) | One box covers the Pi 4 Model B, the correct micro-HDMI display cable, a proper 3.5A USB-C power supply, a 32 GB microSD card, case, heatsinks, and an inline power switch. 2 GB of RAM is plenty; the Pi only renders images. Reflash the included SD card per step 1 (skip the pre-loaded image), and skip installing the fan: heatsinks alone are enough for this workload, and a fan just pulls cabinet dust through the case. One Pi per panel; see [Adding a second marquee](#adding-a-second-marquee) if your cabinet has more than one slot. |
 | [Double-sided mounting tape](https://amzn.to/45NlqaV) | Final panel mounting to the back of the marquee plexi. |
 | [Painter's tape](https://amzn.to/4wI9rHr) | Temporary mounting while you align and calibrate; commit to the strong tape only after calibration looks right. |
-| [USB-A to Micro-USB cable, 5 ft](https://amzn.to/4c5oxi0) | Pi to the NeoSD Pro's USB port (the cart uses Micro-USB). |
-| TerraOnion NeoSD Pro | The flash cart. MarqueeMark reads its game announcements; it does not modify the cart in any way. |
+| [USB-A to Micro-USB cable, 5 ft](https://amzn.to/4c5oxi0) | Pi to the NeoSD Pro's USB port (the cart uses Micro-USB). Only needed for a panel following a NeoSD Pro; a manual-mode panel doesn't need one. |
+| TerraOnion NeoSD Pro (optional) | Enables automatic game detection. MarqueeMark reads its game announcements; it does not modify the cart in any way. Not required at all if you use `--manual` mode; see [Using MarqueeMark without a NeoSD Pro](#using-marqueemark-without-a-neosd-pro). |
 
 *The hardware links above are Amazon affiliate links, buying through them
 supports this project at no cost to you.*
 
-**Marquee art is not included** Mini-marquee art packs
+**Marquee art is not included.** Mini-marquee art packs
 using MAME short-name file naming (`mslug.png`, `kof95.png`, ...) are
 available to registered users at EmuMovies.
 
 https://emumovies.com/files/file/1628-neo-geo-mvs-marquee-pack-mini/
 
-Add the PNGs from the built-in art manager page. 
+Add the PNGs from the built-in art manager page.
 I include a "generic.png" image of the Gamesboro logo
 so that you can align your image before downloading the pack.
 
@@ -89,9 +97,10 @@ Slot 1. MarqueeMark tracks what lives in each flash slot so the marquee
 is correct from power-on. The cart never speaks during auto-boot, which is
 why that tracking exists.
 
-MarqueeMark itself is one Python file: a serial listener, a pygame
-renderer that draws directly to the display (no desktop needed), a small
-state store, and an HTTP server for the admin page and OBS overlay.
+MarqueeMark itself is one Python file: a serial listener (or, in manual
+mode, an admin-page selection instead), a pygame renderer that draws
+directly to the display (no desktop needed), a small state store, and an
+HTTP server for the admin page and OBS overlay.
 
 ## Installation (quick install)
 
@@ -203,6 +212,11 @@ options you added to the service (such as `--idle generic` or
 `--keep-awake`), and restarts the service instead of rebooting. Your art,
 calibration, and slot history are left untouched.
 
+If you calibrated before this update, the arrow keys may need a quick
+recheck the first time you open calibration afterward. See
+[D-pad orientation](#calibrating-the-image) below; it's a one-time fix,
+not something that needs redoing on every update.
+
 ## Keeping the Pi updated
 
 The installer deliberately does not upgrade your operating system. A full
@@ -231,9 +245,9 @@ marquee.
 ### A note on network security
 
 MarqueeMark's admin page has no password. Anyone who can reach the Pi on
-your network can upload art, delete files, and change the calibration.
-That's a deliberate trade for ease of setup, and it's fine on a normal
-home network.
+your network can upload art, delete files, change the calibration, and
+sleep or wake the display. That's a deliberate trade for ease of setup,
+and it's fine on a normal home network.
 
 Do not port-forward this device or expose port 8080 to the internet. It
 is designed to be reached only from inside your own network.
@@ -263,6 +277,18 @@ up: load the game on the NeoSD Pro and MarqueeMark logs the exact name it
 wants (`journalctl -u marqueemark -n 5`), or just watch which art fails to
 appear.
 
+### Display power
+
+A **Sleep** and **Wake** button live on the admin page for every panel.
+Use them to blank the panel and let its backlight switch off, or bring it
+back, whenever you like. Sleeping by hand stays in effect even if the
+cabinet powers on again; only Wake, or the automatic wake for a panel
+following a NeoSD Pro, clears it.
+
+This is the only way to control sleep on a manual-mode panel with no
+`--sleep-source` configured, since it has no cabinet-power signal to
+follow on its own.
+
 ### Calibrating the image
 
 Mount the panel behind the marquee window with **painter's tape** first,
@@ -282,6 +308,13 @@ while you click; it updates live.
   to re-tape.
 - **Flip 180°**: use this if the image is upside down. This is saved with
   the rest of your calibration, so it survives reboots.
+- **D-pad orientation**: which way the arrow pad needs correcting depends
+  on which edge your panel's ribbon cable exits, which varies between
+  panels and can't be figured out automatically. If pressing an arrow
+  moves the image a direction other than the one you pressed, click this
+  button and try again. It cycles through four settings; one of them will
+  be correct. This is a one-time setting per panel, saved with the rest
+  of your calibration.
 - **Preview**: switches between the alignment test pattern and real
   marquee art, for a final check of how it actually looks.
 - **Save** stores everything; **Cancel** discards it and returns the
@@ -291,6 +324,85 @@ Aim to have the pattern slightly overfill the window opening on all four
 sides, so no black edge is visible through the plexi. When it looks right,
 commit the panel with the double-sided tape and re-run calibration for a
 final touch-up if the panel shifted.
+
+## Using MarqueeMark without a NeoSD Pro
+
+You don't need a NeoSD Pro, or any flash cart, to use MarqueeMark at all.
+`--manual` mode works perfectly well as your only panel, on any MVS
+cabinet, real cartridges included. The tradeoff is simple: instead of the
+marquee updating itself automatically when you swap a cart, you pick the
+game from the admin page, and it stays showing that until you change it.
+
+This is a good fit if you swap cartridges rarely, if you'd rather not buy
+a flash cart just for this project, or if you just want a nicer marquee
+than the paper card without needing automatic detection at all.
+
+Setup is the same install as anywhere else in this README, with one
+difference: skip the NeoSD Pro's USB cable entirely, and add `--manual`
+to the service's `ExecStart` line:
+
+```
+--manual
+```
+
+That's it. No `--art-source` or `--sleep-source` needed unless you're
+running a second panel too (see below). Upload art directly to this
+panel's own admin page, pick a game from the **Now showing** dropdown,
+and use the **Sleep** and **Wake** buttons there whenever you turn the
+cabinet on or off, since without a NeoSD Pro there's no automatic signal
+for MarqueeMark to follow.
+
+## Adding a second marquee
+
+Some cabinets have more than one cartridge slot, and only one can hold a
+NeoSD Pro. A second slot with a real cartridge in it has no way to
+announce itself, so MarqueeMark can't auto-detect what's loaded there the
+way it does for a NeoSD Pro. A second panel handles this in manual mode
+instead: you pick what it shows from its own admin page, and it stays on
+that selection until you change it.
+
+This runs on its own Raspberry Pi, one Pi per panel. A single Pi can only
+own one display at a time under the display driver MarqueeMark uses, so a
+second panel needs a second Pi rather than a second cable into the first
+one.
+
+Install MarqueeMark on the second Pi the same way as the first (Step 1
+and Step 2 above), then edit its service to add:
+
+```
+--manual --art-source http://marquee.local:8080 --sleep-source http://marquee.local:8080/current
+```
+
+replacing `marquee.local` with your primary Pi's actual hostname or IP.
+
+- `--manual` turns off the serial listener and switches this panel to
+  admin-page selection instead. Its own admin page gains a **Now
+  showing** picker at the top.
+- `--art-source` points this panel at the primary Pi's art library, so
+  you only maintain one set of PNGs. This panel downloads and caches
+  whatever it needs and falls back to its local cache if the primary is
+  unreachable.
+- `--sleep-source` points at the primary's `/current` endpoint, which is
+  read-only, so the primary needs no changes at all. When it reports no
+  game running, the cabinet is off, and this panel sleeps too; when it
+  reports a game again, this panel wakes automatically.
+
+Both flags are optional. Without `--art-source`, upload art directly to
+this panel's own admin page instead. Without `--sleep-source`, use the
+**Sleep** and **Wake** buttons on this panel's admin page by hand.
+
+## OBS stream overlay
+
+MarqueeMark serves a transparent overlay page showing the current game's
+mini-marquee art in the bottom-right corner, updating live.
+
+In OBS: **Add > Browser Source**, URL
+`http://YOUR_PI_HOSTNAME.local:8080/overlay`, width 1920, height 1080.
+That's it. When no game is identified, the overlay shows `generic.png`.
+
+Also available: `http://...:8080/current` returns the current game as
+JSON, if you want to build your own integrations. This is also what a
+second panel polls for `--sleep-source`.
 
 ## Manual installation
 
@@ -345,6 +457,7 @@ sudo chmod 440 /etc/sudoers.d/marqueemark
 
 - USB cable: Pi to the NeoSD Pro's USB port. The cart only powers up with
   the cabinet, so don't worry if nothing appears until the cab is on.
+  Skip this if the panel is running in `--manual` mode.
 - HDMI: Pi to the panel driver board. Panel's power: driver board's
   USB-to-barrel cable to one of the Pi's USB-A ports.
 - With the cab on, verify the cart enumerates:
@@ -377,7 +490,9 @@ RestartSec=3
 WantedBy=multi-user.target
 ```
 
-(Replace `YOUR_USERNAME` with yours.) Then:
+(Replace `YOUR_USERNAME` with yours. For a second, manual-mode panel, add
+the flags described in [Adding a second marquee](#adding-a-second-marquee)
+to the `ExecStart` line.) Then:
 
 ```bash
 sudo systemctl daemon-reload
@@ -400,29 +515,20 @@ the **Flip 180°** button on the admin page, that choice is saved in
 `calibration.json` and takes over, so you never need to edit this file to
 correct an upside-down image.
 
-## OBS stream overlay
-
-MarqueeMark serves a transparent overlay page showing the current game's
-mini-marquee art in the bottom-right corner, updating live.
-
-In OBS: **Add > Browser Source**, URL
-`http://YOUR_PI_HOSTNAME.local:8080/overlay`, width 1920, height 1080.
-That's it. When no game is identified, the overlay shows `generic.png`.
-
-Also available: `http://...:8080/current` returns the current game as
-JSON, if you want to build your own integrations.
-
 ## Command-line options
 
 | Option | Default | Purpose |
 |---|---|---|
 | `--port` | `/dev/ttyACM0` | NeoSD serial device |
 | `--art` | `./art` | Art folder |
-| `--rotate` | `0` | Starting output rotation (90 or 270 for a portrait panel). Overridden by the admin page's Flip button once used. |
+| `--rotate` | `90` | Starting output rotation (90 or 270 for a portrait panel). Overridden by the admin page's Flip button once used. Only matters for a fresh panel with no saved calibration. |
 | `--idle` | `blank` | With no cart link: `blank` (dark, dies with the cab) or `generic` (stays lit; for a slot that usually holds a real cartridge) |
-| `--keep-awake` | off | Never sleep the panel on link loss |
+| `--keep-awake` | off | Never sleep the panel automatically. The admin page's Sleep/Wake buttons still work. |
 | `--http-port` | `8080` | Admin and overlay server port |
-| `--calibrate` | (none) | Advanced: offline terminal calibration for a bench with no network. The admin page is the normal way to calibrate. Keys: arrows move, `+`/`-` resize, `,` `.` `<` `>` tilt, `t` step size, `p` pattern/art preview, `r` reset, `s` save, `q` quit. |
+| `--manual` | off | No NeoSD Pro on this panel; pick the marquee by hand from the admin page instead. Use for a second panel behind a real cartridge, or any cabinet without a NeoSD Pro at all. See [Adding a second marquee](#adding-a-second-marquee). |
+| `--art-source` | none | `--manual` only. Base URL of another MarqueeMark (e.g. `http://marquee.local:8080`) to pull art from, so the library lives in one place instead of being copied to every panel. |
+| `--sleep-source` | none | `--manual` only. URL of another MarqueeMark's `/current` endpoint. This panel sleeps and wakes to match that cabinet's power state. Omit to control sleep by hand instead. |
+| `--calibrate` | (none) | Advanced: offline terminal calibration for a bench with no network. The admin page is the normal way to calibrate. Keys: arrows move, `+`/`-` resize, `,` `.` `<` `>` tilt, `d` cycle D-pad orientation, `t` step size, `p` pattern/art preview, `r` reset, `s` save, `q` quit. |
 
 ## Troubleshooting
 
@@ -432,8 +538,13 @@ JSON, if you want to build your own integrations.
   the OBS overlay at the bare address. Add `/admin` to the URL.
 - **Image is upside down**: click **Flip 180°** in the admin page's
   calibration controls, then Save.
+- **Arrows in calibration move the wrong direction**: click **D-pad
+  orientation** and try again. Which setting is correct depends on this
+  specific panel, not on rotation, so it can differ between two panels
+  even if both are mounted the same way.
 - **No `/dev/ttyACM0`**: the cart is slot-powered, the cab must be on.
-  Check `dmesg | tail` for the "NeoSD Virtual Com Port" enumeration.
+  Check `dmesg | tail` for the "NeoSD Virtual Com Port" enumeration. If
+  this panel is in `--manual` mode, it doesn't use this device at all.
 - **Permission denied on the serial port**: your user isn't in `dialout`
   (re-login after `usermod`).
 - **Service runs but no journal output**: `PYTHONUNBUFFERED=1` is missing
@@ -450,18 +561,24 @@ JSON, if you want to build your own integrations.
   board manually: `echo 4 | sudo tee /sys/class/graphics/fb0/blank`
   should put it into standby (`echo 0` wakes it). Boards that show a
   permanent "NO SIGNAL" box instead can't use this feature, run with
-  `--keep-awake`.
+  `--keep-awake`, and use the admin page's Sleep/Wake buttons by hand
+  instead.
+- **A second panel isn't following the cabinet to sleep**: confirm its
+  service line actually includes `--sleep-source` pointed at the primary
+  Pi's `/current` URL. Run `sudo systemctl cat marqueemark` on the second
+  Pi to see the exact command it's running.
+- **A second panel's art list is empty or stale**: confirm `--art-source`
+  points at the primary Pi and that Pi is reachable on the network. This
+  panel falls back to its local cache when the primary can't be reached,
+  so a brief outage shows old art rather than nothing.
 
 ## Limitations & roadmap
 
-- Detection requires a NeoSD Pro. With a real MVS cartridge in the slot
-  the marquee shows the generic art (`--idle generic`). v2 will let you
-  manually pick a marquee for that slot from the admin panel, plus manual
-  controls to turn the display on and put it to sleep on demand.
-- One panel/window per Pi HDMI output today; the Pi 4's dual HDMI makes a
-  two-window build possible and it's on the roadmap.
 - The NeoSD protocol here is unofficial and could change in future
   TerraOnion firmware. Firmware 1.07 behavior is what's documented above.
+- A second, manual-mode panel needs its own Raspberry Pi. A single Pi
+  driving two panels at once is not possible under the display driver
+  MarqueeMark currently uses.
 
 ## Credits
 
