@@ -3,6 +3,12 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.15 — Built-in template preview repair
+
+- Fixed the Admin UI preview path for built-in layouts. The Neo Geo one-slot
+  template now loads its installed artwork rather than showing a black
+  fallback behind its slot guide.
+
 ## v1.3.4-electrocoin.14 — Built-in template installer repair
 
 - Updated the installer to download missing built-in cabinet artwork on both

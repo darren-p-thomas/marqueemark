@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.14"
+VERSION = "1.3.4-electrocoin.15"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -846,12 +846,18 @@ function selectedCards() {
   const saved=ecoConfig.assignments && ecoConfig.assignments[layout.id];
   return saved ? saved.map(card=>({...card})) : Array.from({length:layout.windows.length},blankCard);
 }
+function layoutBackgroundPath(layout) {
+  // Built-in templates live with application art; uploaded custom bases live
+  // in the separate base directory.  Do not infer this from a layout ID:
+  // future built-in templates use the same art location as Electrocoin.
+  return layout.base_source === 'builtin' ? '/art/' : '/base/';
+}
 function renderLivePreview() {
   if (!ecoConfig) return;
   const layout=(ecoConfig.layouts||[]).find(item=>item.id===ecoConfig.layout_id) || null;
   const canvas=document.getElementById('live-layout-canvas'), name=document.getElementById('live-layout-name');
   if (!layout) { canvas.innerHTML=''; name.textContent='No live layout is available.'; return; }
-  const image=layout.background_type!=='color', path=layout.id==='electrocoin'?'/art/':'/base/';
+  const image=layout.background_type!=='color', path=layoutBackgroundPath(layout);
   canvas.innerHTML=''; canvas.style.backgroundImage=image?'url('+path+encodeURIComponent(layout.base)+')':'none'; canvas.style.backgroundColor=image?'#050508':(layout.background_color||'#000000');
   name.textContent='Currently showing: '+layout.name+(ecoLiveShort ? ' · NeoSD Pro: '+(ecoTitles[ecoLiveShort]||ecoLiveShort) : '');
   (ecoConfig.cards||[]).forEach((card,index)=>{
@@ -1175,7 +1181,7 @@ function closePreviewModal() { document.getElementById('layout-preview-modal').c
 function previewLayout(layout) {
   document.getElementById('layout-preview-title').textContent=layout.name;
   const canvas=document.getElementById('layout-preview-canvas'); canvas.innerHTML='';
-  const image=layout.background_type!=='color', path=layout.id==='electrocoin'?'/art/':'/base/';
+  const image=layout.background_type!=='color', path=layoutBackgroundPath(layout);
   canvas.style.backgroundImage=image?'url('+path+encodeURIComponent(layout.base)+')':'none'; canvas.style.backgroundColor=image?'#050508':(layout.background_color||'#000000');
   layout.windows.forEach((slot,index)=>{
     const guide=document.createElement('div'); guide.className='layout-slot'; guide.textContent='Slot '+(index+1);
