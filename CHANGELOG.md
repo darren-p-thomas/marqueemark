@@ -3,6 +3,16 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.10 — Live preview, model choice, assignment fix
+
+- Fixed card assignments for an inactive selected layout being lost on the
+  next Admin read. Saving assignments no longer changes the live display.
+- Added a compact **On display** section with the actual live background and
+  card-art preview, including NeoSD Pro updates when a new game is loaded.
+- Added API-key validation and a provider-specific image-model picker before
+  generation, so users can choose an available model such as Gemini's image
+  models rather than relying on a fixed default.
+
 ## v1.3.4-electrocoin.9 — Gemini generation fix
 
 - Corrected the Gemini image response format to JPEG, which its current

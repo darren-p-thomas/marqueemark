@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.9"
+VERSION = "1.3.4-electrocoin.10"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -614,6 +614,10 @@ ADMIN_HTML = """<!DOCTYPE html>
                  color: #cbd1e2; font-size: 1.6rem; cursor: pointer; }
   #layout-preview-canvas { position: relative; width: 100%; aspect-ratio: 1366 / 360; margin-top: 12px;
                            background: #050508 center / cover no-repeat; border: 1px solid #5e6380; }
+  #live-layout-panel { margin: 14px 0 24px; padding: 14px; border: 1px solid #30354b; border-radius: 10px; background: #141520; }
+  #live-layout-canvas { position: relative; width: min(720px,100%); aspect-ratio: 1366 / 360; margin-top: 10px;
+                         overflow: hidden; background: #050508 center / cover no-repeat; border: 1px solid #5e6380; }
+  #live-layout-canvas img { position: absolute; object-fit: fill; }
   #layout-preview-canvas .layout-slot { pointer-events: none; }
   #custom-editor { margin-top: 14px; padding: 14px; border: 1px solid #30354b; border-radius: 10px; background: #11121b; }
   #layout-canvas { position: relative; width: min(100%, 1000px); aspect-ratio: 1366 / 360;
@@ -640,6 +644,9 @@ ADMIN_HTML = """<!DOCTYPE html>
 
 <section id="electrocoin-section" class="hidden">
   <h2>Digital Marquee <span style="color:#888;font-weight:normal;font-size:0.7em">(1366 × 360)</span></h2>
+  <section id="live-layout-panel"><h3 class="subheading" style="margin-top:0">On display</h3>
+    <p id="live-layout-name" class="hint">Loading current layout…</p><div id="live-layout-canvas" aria-label="Current digital marquee preview"></div>
+  </section>
   <h3 class="subheading">Marquee layout</h3>
   <p class="hint">Choose a saved layout, or create a new one. Layouts contain only the background and mini-marquee positions.</p>
   <div id="eco-base" class="template-pills" role="radiogroup" aria-label="Marquee layout"></div>
@@ -650,7 +657,8 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div class="cal-row" style="margin-top:10px"><label><input id="custom-solid" type="checkbox"> Use a solid colour instead</label><input id="custom-colour" type="color" value="#000000" aria-label="Background colour"></div>
     <details class="ai-generator"><summary>Generate a background with AI</summary>
       <p class="hint" style="margin-top:10px">Your key is used directly by your browser and is never sent to this Pi. Image-generation workflow inspired by <a href="https://github.com/raz0red/ifwithgraphics" target="_blank" rel="noopener">IFWG by raz0red</a>.</p>
-      <div class="cal-row"><label class="label" for="ai-provider">Provider</label><select id="ai-provider"><option value="openai">OpenAI</option><option value="gemini">Google Gemini</option></select><input id="ai-key" type="password" autocomplete="off" placeholder="API key" aria-label="API key"></div>
+      <div class="cal-row"><label class="label" for="ai-provider">Provider</label><select id="ai-provider"><option value="openai">OpenAI</option><option value="gemini">Google Gemini</option></select><input id="ai-key" type="password" autocomplete="off" placeholder="API key" aria-label="API key"><button id="ai-validate" class="btn">Validate key</button></div>
+      <div class="cal-row" style="margin-top:8px"><label class="label" for="ai-model">Model</label><select id="ai-model" disabled><option>Validate key first</option></select></div>
       <div class="cal-row" style="margin-top:8px"><label><input id="ai-remember" type="checkbox"> Remember this key on this device</label></div>
       <div style="margin-top:8px"><label for="ai-prompt" class="hint" style="display:block">Describe the marquee background</label><textarea id="ai-prompt" placeholder="e.g. brushed steel Neo Geo-inspired arcade art deco background, teal and magenta circuitry, large clear space for four game cards"></textarea></div>
       <div class="cal-actions" style="margin-top:10px"><button id="ai-generate" class="btn">Generate background</button></div><p id="ai-status"></p>
@@ -814,6 +822,7 @@ refresh();
 const ECO_DEFAULT_WINDOWS=[[65,48,176,230],[442,48,178,230],[752,48,174,230],[1125,48,176,230]];
 const ECO_SLOT_RATIO=176/230, ECO_SLOT_COUNTS=[1,2,4,6];
 let ecoConfig=null, ecoFiles=[], ecoTitles={}, editingLayout=false, editingLayoutId=null, layoutDraft={base:'',background_type:'image',background_color:'#000000',windows:[]}, layoutDraftDirty=false, nameModalMode='create';
+let ecoLiveShort=null, ecoLiveEvents=null;
 const blankCard=()=>({source:'blank',art:''});
 
 function selectedLayout() {
@@ -823,6 +832,26 @@ function selectedCards() {
   const layout=selectedLayout(); if (!layout) return [];
   const saved=ecoConfig.assignments && ecoConfig.assignments[layout.id];
   return saved ? saved.map(card=>({...card})) : Array.from({length:layout.windows.length},blankCard);
+}
+function renderLivePreview() {
+  if (!ecoConfig) return;
+  const layout=(ecoConfig.layouts||[]).find(item=>item.id===ecoConfig.layout_id) || null;
+  const canvas=document.getElementById('live-layout-canvas'), name=document.getElementById('live-layout-name');
+  if (!layout) { canvas.innerHTML=''; name.textContent='No live layout is available.'; return; }
+  const image=layout.background_type!=='color', path=layout.id==='electrocoin'?'/art/':'/base/';
+  canvas.innerHTML=''; canvas.style.backgroundImage=image?'url('+path+encodeURIComponent(layout.base)+')':'none'; canvas.style.backgroundColor=image?'#050508':(layout.background_color||'#000000');
+  name.textContent='Currently showing: '+layout.name+(ecoLiveShort ? ' · NeoSD Pro: '+(ecoTitles[ecoLiveShort]||ecoLiveShort) : '');
+  (ecoConfig.cards||[]).forEach((card,index)=>{
+    const stem=card.source==='neosd' ? ecoLiveShort : card.source==='fixed' ? card.art : '';
+    const slot=layout.windows[index]; if (!stem || !slot) return;
+    const art=document.createElement('img'); art.src='/art/'+encodeURIComponent(stem)+'.png'; art.alt=''; art.onerror=()=>art.remove();
+    art.style.left=(slot[0]/1366*100)+'%'; art.style.top=(slot[1]/360*100)+'%'; art.style.width=(slot[2]/1366*100)+'%'; art.style.height=(slot[3]/360*100)+'%'; canvas.appendChild(art);
+  });
+}
+function startEcoLiveUpdates() {
+  if (ecoLiveEvents) return;
+  ecoLiveEvents=new EventSource('/events');
+  ecoLiveEvents.onmessage=e=>{ try { ecoLiveShort=(JSON.parse(e.data)||{}).short||null; renderLivePreview(); } catch (_) {} };
 }
 function pullCards() {
   const layout=selectedLayout(); if (!ecoConfig || !layout) return [];
@@ -984,7 +1013,7 @@ document.getElementById('custom-colour').oninput=e=>{ layoutDraft.background_col
 // Bring-your-own-key image generation. The Pi only receives the resulting
 // image through /base/upload; keys remain in this browser (session memory by
 // default, localStorage only after the user explicitly opts in).
-const AI_SETTINGS_KEY='marqueemark-ai-settings'; let aiSessionKeys={};
+const AI_SETTINGS_KEY='marqueemark-ai-settings'; let aiSessionKeys={}, aiModelsByProvider={}, aiSelectedModels={};
 function readAiSettings() { try { return JSON.parse(localStorage.getItem(AI_SETTINGS_KEY)) || {keys:{}}; } catch (_) { return {keys:{}}; } }
 function writeAiSettings(settings) { localStorage.setItem(AI_SETTINGS_KEY,JSON.stringify(settings)); }
 function aiProvider() { return document.getElementById('ai-provider').value; }
@@ -992,6 +1021,7 @@ function restoreAiKey() {
   const provider=aiProvider(), saved=readAiSettings().keys || {};
   document.getElementById('ai-key').value=aiSessionKeys[provider] || saved[provider] || '';
   document.getElementById('ai-remember').checked=!!saved[provider];
+  renderAiModels();
 }
 function rememberAiKey() {
   const provider=aiProvider(), key=document.getElementById('ai-key').value.trim(), remember=document.getElementById('ai-remember').checked;
@@ -1001,29 +1031,61 @@ function rememberAiKey() {
   writeAiSettings(settings);
 }
 function aiError(data, fallback) { return data && data.error && (data.error.message || data.error) || fallback; }
+function renderAiModels() {
+  const provider=aiProvider(), select=document.getElementById('ai-model'), models=aiModelsByProvider[provider] || [];
+  select.innerHTML=''; select.disabled=!models.length;
+  if (!models.length) { select.append(new Option('Validate key first','')); return; }
+  const wanted=aiSelectedModels[provider] || models[0].value;
+  models.forEach(model=>select.append(new Option(model.label,model.value,false,model.value===wanted)));
+}
+function aiModel() { return document.getElementById('ai-model').value || (aiProvider()==='openai'?'gpt-image-1':'gemini-3.1-flash-image'); }
+async function validateOpenAiKey(key) {
+  const r=await fetch('https://api.openai.com/v1/models',{headers:{'Authorization':'Bearer '+key}}), data=await r.json();
+  if (!r.ok) throw new Error(aiError(data,r.status));
+  return (data.data||[]).filter(model=>model.id && model.id.includes('image')).sort((a,b)=>(b.created||0)-(a.created||0)).map(model=>({value:model.id,label:model.id}));
+}
+async function validateGeminiKey(key) {
+  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?key='+encodeURIComponent(key)), data=await r.json();
+  if (!r.ok) throw new Error(aiError(data,r.status));
+  return (data.models||[]).filter(model=>model.name && model.name.includes('image') && !model.name.includes('imagen')).map(model=>{
+    const value=model.name.replace(/^models\//,''); return {value,label:model.displayName ? model.displayName+' ('+value+')' : value};
+  });
+}
+async function validateAiKey() {
+  const provider=aiProvider(), key=document.getElementById('ai-key').value.trim(), status=document.getElementById('ai-status'), button=document.getElementById('ai-validate');
+  if (!key) { status.textContent='Enter your API key first.'; return; }
+  rememberAiKey(); button.disabled=true; button.textContent='Validating…'; status.textContent='Checking available image models…';
+  try {
+    const models=provider==='openai' ? await validateOpenAiKey(key) : await validateGeminiKey(key);
+    if (!models.length) throw new Error('This key has no available image-generation models.');
+    aiModelsByProvider[provider]=models; aiSelectedModels[provider]=models[0].value; renderAiModels();
+    status.textContent='Key validated. Choose a model, then generate your background.';
+  } catch (e) { status.textContent='Key validation failed: '+e.message; }
+  button.disabled=false; button.textContent='Validate key';
+}
 function marqueeAiPrompt(request) {
   return 'Create a background-only digital arcade marquee design. The final physical canvas is exactly 1366 by 360 pixels, an ultra-wide 3.794:1 landscape. Compose important artwork safely within this very wide ratio; the app will crop or fit the returned image to 1366 × 360. Leave uncluttered space for mini-marquee game cards which will be placed later. Do not include readable text, game titles, logos, slot frames, UI, controls, or characters that overlap the card areas. High-quality arcade cabinet artwork. Design request: ' + request.trim();
 }
-async function generateOpenAiImage(key, prompt) {
-  const r=await fetch('https://api.openai.com/v1/images/generations',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:'gpt-image-1',prompt,size:'1536x1024',quality:'medium',output_format:'png'})});
+async function generateOpenAiImage(key, prompt, model) {
+  const r=await fetch('https://api.openai.com/v1/images/generations',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,prompt,size:'1536x1024',quality:'medium',output_format:'png'})});
   const data=await r.json(); if (!r.ok) throw new Error(aiError(data,r.status));
   const image=data.data && data.data[0]; if (!image || !image.b64_json) throw new Error('OpenAI returned no image data.');
   return 'data:image/png;base64,'+image.b64_json;
 }
-async function generateGeminiImage(key, prompt) {
-  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({model:'gemini-3.1-flash-image',input:[{type:'text',text:prompt}],response_format:{type:'image',mime_type:'image/jpeg',aspect_ratio:'16:9'}})});
+async function generateGeminiImage(key, prompt, model) {
+  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({model,input:[{type:'text',text:prompt}],response_format:{type:'image',mime_type:'image/jpeg',aspect_ratio:'16:9'}})});
   const data=await r.json(); if (!r.ok) throw new Error(aiError(data,r.status));
   const image=data.output_image || (data.steps||[]).flatMap(step=>step.content||[]).find(item=>item.type==='image' && item.data);
   if (!image || !image.data) throw new Error('Gemini returned no image data.');
   return 'data:'+(image.mime_type||'image/png')+';base64,'+image.data;
 }
 async function generateAiBackground() {
-  const provider=aiProvider(), key=document.getElementById('ai-key').value.trim(), request=document.getElementById('ai-prompt').value.trim(), status=document.getElementById('ai-status'), button=document.getElementById('ai-generate');
+  const provider=aiProvider(), key=document.getElementById('ai-key').value.trim(), request=document.getElementById('ai-prompt').value.trim(), status=document.getElementById('ai-status'), button=document.getElementById('ai-generate'), model=aiModel();
   if (!key) { status.textContent='Enter your '+(provider==='openai'?'OpenAI':'Gemini')+' API key first.'; return; }
   if (!request) { status.textContent='Describe the background you want to create first.'; return; }
   rememberAiKey(); button.disabled=true; button.textContent='Generating…'; status.textContent='Generating in your browser…';
   try {
-    const dataUrl=provider==='openai' ? await generateOpenAiImage(key,marqueeAiPrompt(request)) : await generateGeminiImage(key,marqueeAiPrompt(request));
+    const dataUrl=provider==='openai' ? await generateOpenAiImage(key,marqueeAiPrompt(request),model) : await generateGeminiImage(key,marqueeAiPrompt(request),model);
     status.textContent='Normalising the generated image for the marquee…';
     const blob=await (await fetch(dataUrl)).blob(), fit=document.getElementById('custom-fit').value;
     const r=await fetch('/base/upload?fit='+encodeURIComponent(fit),{method:'POST',body:blob}); if (!r.ok) throw new Error(await r.text());
@@ -1035,6 +1097,8 @@ async function generateAiBackground() {
 document.getElementById('ai-provider').onchange=restoreAiKey;
 document.getElementById('ai-key').oninput=e=>{ aiSessionKeys[aiProvider()]=e.target.value; };
 document.getElementById('ai-remember').onchange=rememberAiKey;
+document.getElementById('ai-validate').onclick=validateAiKey;
+document.getElementById('ai-model').onchange=e=>{ aiSelectedModels[aiProvider()]=e.target.value; };
 document.getElementById('ai-generate').onclick=generateAiBackground;
 restoreAiKey();
 async function selectLayout(ident) {
@@ -1105,10 +1169,12 @@ document.getElementById('layout-preview-modal').onclick=e=>{if(e.target===e.curr
 async function loadEco() {
   const r=await fetch('/electrocoin/config'); if (!r.ok) return;
   ecoConfig=await r.json(); ecoFiles=await (await fetch('/list')).json(); try { ecoTitles=await (await fetch('/game-titles')).json(); } catch (_) {}
+  try { ecoLiveShort=((await (await fetch('/current')).json())||{}).short||null; } catch (_) {}
+  startEcoLiveUpdates();
   document.getElementById('electrocoin-section').classList.remove('hidden'); renderAll();
 }
 function renderAll() {
-  renderBasePills(); renderCustomEditor();
+  renderBasePills(); renderCustomEditor(); renderLivePreview();
   const assignments=document.getElementById('eco-assignment-section'); assignments.classList.toggle('hidden',editingLayout);
   if (!editingLayout) {
     const layout=selectedLayout(), live=(ecoConfig.layouts||[]).find(l=>l.id===ecoConfig.layout_id);
@@ -1434,6 +1500,11 @@ class OverlayServer:
                         if target == cfg["layout_id"]:
                             cfg["cards"] = [dict(card) for card in target_cards]
                         cfg = save_electrocoin_config(cfg)
+                        # Keep the server's configuration in sync even when
+                        # editing an inactive layout. Only the queue changes
+                        # the physical display, but subsequent Admin reads
+                        # must see the newly saved assignment immediately.
+                        server.display.electro_config = cfg
                         if target == cfg["layout_id"]: CAL_QUEUE.put(("electro_config", cfg))
                         self._send(200, "application/json", json.dumps(electro_payload(cfg)).encode())
                 elif path == "/display/sleep":
@@ -1493,6 +1564,7 @@ class OverlayServer:
                     cfg["assignments"][ident] = _cards(cfg.get("assignments", {}).get(ident, []), len(parsed))
                 cfg["selected_layout_id"] = ident
                 cfg = save_electrocoin_config(cfg)
+                server.display.electro_config = cfg
                 if old_base and old_base != base and not any(layout["base"] == old_base for layout in layouts):
                     try: os.remove(os.path.join(BASE_DIR, old_base))
                     except OSError: pass
@@ -1507,7 +1579,8 @@ class OverlayServer:
                     self._send(404, "text/plain", b"layout not found")
                     return
                 cfg = electro_config(server.display.electro_config); cfg["selected_layout_id"] = layout["id"]
-                cfg = save_electrocoin_config(cfg); self._send(200, "application/json", json.dumps(electro_payload(cfg)).encode())
+                cfg = save_electrocoin_config(cfg); server.display.electro_config = cfg
+                self._send(200, "application/json", json.dumps(electro_payload(cfg)).encode())
 
             def _display_electro_layout(self, ident):
                 if not server.display.electrocoin:
@@ -1519,7 +1592,7 @@ class OverlayServer:
                     return
                 cfg = activate_layout(electro_config(server.display.electro_config), layout)
                 cfg["selected_layout_id"] = layout["id"]
-                cfg = save_electrocoin_config(cfg); CAL_QUEUE.put(("electro_config", cfg))
+                cfg = save_electrocoin_config(cfg); server.display.electro_config = cfg; CAL_QUEUE.put(("electro_config", cfg))
                 self._send(200, "application/json", json.dumps(electro_payload(cfg)).encode())
 
             def _delete_electro_layout(self, ident, replace):
@@ -1540,6 +1613,7 @@ class OverlayServer:
                 if was_displayed: cfg = activate_layout(cfg, builtin_layout())
                 if cfg["selected_layout_id"] == ident: cfg["selected_layout_id"] = "electrocoin"
                 cfg = save_electrocoin_config(cfg)
+                server.display.electro_config = cfg
                 if was_displayed: CAL_QUEUE.put(("electro_config", cfg))
                 if not any(layout["base"] == doomed["base"] for layout in layouts):
                     try: os.remove(os.path.join(BASE_DIR, doomed["base"]))

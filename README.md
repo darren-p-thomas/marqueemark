@@ -101,6 +101,9 @@ can use a remembered key, so use the option only on a trusted device.
 The generation workflow is independently implemented and was inspired by
 [IFWG by raz0red](https://github.com/raz0red/ifwithgraphics).
 
+Use **Validate key** before generating to load the image models currently
+available to that provider key, then choose the desired model from the list.
+
 ## How it works
 
 The NeoSD Pro's USB port appears as a standard serial device
