@@ -1,5 +1,6 @@
 art/*
 !art/electrocoin-base.png
+!art/neogeo-one-slot.png
 calibration.json
 lastgame.json
 __pycache__/

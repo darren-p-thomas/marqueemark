@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.11"
+VERSION = "1.3.4-electrocoin.12"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -102,6 +102,14 @@ ELECTROCOIN_DEFAULT = {"base": "electrocoin-base.png",
     "cards": [{"source": "fixed", "art": ""}, {"source": "fixed", "art": ""},
               {"source": "fixed", "art": ""}, {"source": "neosd", "art": ""}],
     "windows": [[65, 48, 176, 230], [442, 48, 178, 230], [752, 48, 174, 230], [1125, 48, 176, 230]]}
+BUILTIN_LAYOUTS = {
+    "electrocoin": {"id": "electrocoin", "name": "Electrocoin four-slot", "base": "electrocoin-base.png",
+                    "base_source": "builtin", "background_type": "image", "background_color": "#000000",
+                    "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]]},
+    "neogeo-one-slot": {"id": "neogeo-one-slot", "name": "Neo Geo one-slot", "base": "neogeo-one-slot.png",
+                        "base_source": "builtin", "background_type": "image", "background_color": "#000000",
+                        "windows": [[1053, 34, 231, 290]]},
+}
 
 def _art_stem(value):
     value = os.path.basename(value.lower()) if isinstance(value, str) else ""
@@ -167,13 +175,15 @@ def load_custom_layouts():
 def save_custom_layouts(layouts):
     with open(ELECTROCOIN_LAYOUTS_PATH, "w") as f: json.dump(layouts, f, indent=2)
 
-def builtin_layout():
-    return {"id": "electrocoin", "name": "Electrocoin four-slot", "base": ELECTROCOIN_DEFAULT["base"],
-            "base_source": "builtin", "background_type": "image", "background_color": "#000000",
-            "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]]}
+def builtin_layout(ident="electrocoin"):
+    layout = BUILTIN_LAYOUTS.get(ident, BUILTIN_LAYOUTS["electrocoin"])
+    return dict(layout, windows=[list(r) for r in layout["windows"]])
+
+def is_builtin_layout(ident):
+    return ident in BUILTIN_LAYOUTS
 
 def find_layout(ident, layouts=None):
-    if ident == "electrocoin": return builtin_layout()
+    if is_builtin_layout(ident): return builtin_layout(ident)
     for layout in layouts if layouts is not None else load_custom_layouts():
         if layout["id"] == ident: return dict(layout, base_source="custom")
     return None
@@ -208,9 +218,9 @@ def electro_config(raw=None):
             stem = _art_stem(raw.get("base"))
             if stem: cfg["base"] = stem + ".png"
         ident = raw.get("layout_id")
-        if ident == "electrocoin" or _safe_layout_id(ident): cfg["layout_id"] = ident
+        if is_builtin_layout(ident) or _safe_layout_id(ident): cfg["layout_id"] = ident
         ident = raw.get("selected_layout_id")
-        if ident == "electrocoin" or _safe_layout_id(ident): cfg["selected_layout_id"] = ident
+        if is_builtin_layout(ident) or _safe_layout_id(ident): cfg["selected_layout_id"] = ident
         cards = raw.get("cards")
         if isinstance(cards, list) and len(cards) in ELECTROCOIN_SLOT_COUNTS:
             cfg["cards"] = _cards(cards, len(cards))
@@ -224,7 +234,7 @@ def electro_config(raw=None):
         if isinstance(assignments, dict):
             cfg["assignments"] = {}
             for ident, cards in assignments.items():
-                ident = ident if ident == "electrocoin" else _safe_layout_id(ident)
+                ident = ident if is_builtin_layout(ident) else _safe_layout_id(ident)
                 if isinstance(cards, list) and len(cards) in ELECTROCOIN_SLOT_COUNTS and ident:
                     cfg["assignments"][ident] = _cards(cards, len(cards))
         cfg["assignments"][cfg["layout_id"]] = [dict(c) for c in cfg["cards"]]
@@ -257,7 +267,7 @@ def save_electrocoin_config(cfg):
 
 def electro_payload(cfg):
     payload = dict(cfg)
-    payload["layouts"] = [builtin_layout()] + load_custom_layouts()
+    payload["layouts"] = [builtin_layout(ident) for ident in BUILTIN_LAYOUTS] + load_custom_layouts()
     return payload
 
 def activate_layout(cfg, layout, layouts=None):
@@ -878,9 +888,10 @@ function renderCards() {
     special.append(new Option('★ NeoSD Pro (live marquee)', '__neosd__', false, card.source === 'neosd'));
     pick.appendChild(special);
     const art=document.createElement('optgroup'); art.label='Artwork';
+    const layoutBases=new Set((ecoConfig.layouts||[]).map(layout=>layout.base));
     for (const f of ecoFiles) {
       const stem=f.replace(/\.png$/, '');
-      if (f === 'generic.png' || (ecoConfig.base_source !== 'custom' && f === ecoConfig.base)) continue;
+      if (f === 'generic.png' || layoutBases.has(f)) continue;
       // A verified title keeps the selector clean. A literal filename is
       // deliberately retained for unknown hacks/homebrew, so it is clear
       // which labels still need mapping rather than silently guessing.
@@ -1007,7 +1018,7 @@ function renderBasePills() {
     if (!disabled && ident !== 'create') {
       const preview=document.createElement('button'); preview.type='button'; preview.className='layout-icon'; preview.textContent='◉'; preview.title='Preview '+label; preview.setAttribute('aria-label',preview.title);
       preview.onclick=e=>{e.stopPropagation(); previewLayout(layout);}; choice.appendChild(preview);
-      if (ident !== 'electrocoin') {
+      if (ident.startsWith('custom-')) {
         const edit=document.createElement('button'); edit.type='button'; edit.className='layout-icon'; edit.textContent='✎'; edit.title='Edit '+label; edit.setAttribute('aria-label',edit.title);
         edit.onclick=e=>{e.stopPropagation(); editLayout(layout);}; choice.appendChild(edit);
       }
@@ -1018,7 +1029,7 @@ function renderBasePills() {
     base.appendChild(choice);
   };
   (ecoConfig.layouts || []).forEach(layout=>add(layout));
-  ['Neo Geo six-slot','Neo Geo four-slot','Neo Geo two-slot','Neo Geo one-slot'].forEach(name=>add({id:'coming-'+name,name:name+' · coming soon'},true));
+  ['Neo Geo six-slot','Neo Geo four-slot','Neo Geo two-slot'].forEach(name=>add({id:'coming-'+name,name:name+' · coming soon'},true));
   add({id:'create',name:'+ Create custom layout'});
 }
 async function uploadCustomBase() {
@@ -1206,7 +1217,7 @@ function renderAll() {
   if (!editingLayout) {
     const layout=selectedLayout(), live=(ecoConfig.layouts||[]).find(l=>l.id===ecoConfig.layout_id);
     document.getElementById('eco-assignment-hint').textContent='Assign marquee art to “'+(layout?layout.name:'this layout')+'”. NeoSD Pro is the special live card.';
-    document.getElementById('layout-delete').classList.toggle('hidden',!layout || layout.id==='electrocoin'); renderCards();
+    document.getElementById('layout-delete').classList.toggle('hidden',!layout || !layout.id.startsWith('custom-')); renderCards();
     const state=document.getElementById('layout-live-state'); state.textContent='Currently on display: '+(live?live.name:'Electrocoin four-slot')+'.';
     const send=document.getElementById('layout-send'), isLive=layout && layout.id===ecoConfig.layout_id;
     send.disabled=!layout || isLive; send.textContent=isLive?'Currently on display':'Send to display';

@@ -3,6 +3,14 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.12 — Neo Geo one-slot template
+
+- Added a built-in Neo Geo one-slot marquee template at the native 1366 × 360
+  canvas size.
+- Mapped its black “Now Featuring” window as a single mini-marquee slot.
+- Kept the new template out of the game-art selector and protected it from
+  custom-layout editing/deletion controls.
+
 ## v1.3.4-electrocoin.11 — Uniform slot sizing
 
 - Added **Keep all slots the same size** in the custom-layout editor.

@@ -88,6 +88,11 @@ Once a layout is selected, its separate card-assignment controls appear
 underneath. Deleting a layout that is currently on display safely returns the
 cabinet to the built-in Electrocoin layout after confirmation.
 
+The built-in template library currently includes **Electrocoin four-slot** and
+**Neo Geo one-slot**. The one-slot design uses its original black “Now
+Featuring” window for the generated mini marquee. Neo Geo two-, four-, and
+six-slot templates remain planned.
+
 ### Optional AI-generated backgrounds
 
 The custom-layout editor can generate a background from a text prompt with a
