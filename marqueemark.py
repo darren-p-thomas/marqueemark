@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.8"
+VERSION = "1.3.4-electrocoin.9"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -1011,7 +1011,7 @@ async function generateOpenAiImage(key, prompt) {
   return 'data:image/png;base64,'+image.b64_json;
 }
 async function generateGeminiImage(key, prompt) {
-  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({model:'gemini-3.1-flash-image',input:[{type:'text',text:prompt}],response_format:{type:'image',mime_type:'image/png',aspect_ratio:'16:9'}})});
+  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({model:'gemini-3.1-flash-image',input:[{type:'text',text:prompt}],response_format:{type:'image',mime_type:'image/jpeg',aspect_ratio:'16:9'}})});
   const data=await r.json(); if (!r.ok) throw new Error(aiError(data,r.status));
   const image=data.output_image || (data.steps||[]).flatMap(step=>step.content||[]).find(item=>item.type==='image' && item.data);
   if (!image || !image.data) throw new Error('Gemini returned no image data.');

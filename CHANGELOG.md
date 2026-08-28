@@ -3,6 +3,12 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.9 — Gemini generation fix
+
+- Corrected the Gemini image response format to JPEG, which its current
+  image-generation endpoint accepts. MarqueeMark still normalises the result
+  into its PNG background format.
+
 ## v1.3.4-electrocoin.8 — Browser-only AI backgrounds
 
 - Added optional OpenAI and Google Gemini background generation inside the
