@@ -3,6 +3,20 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.4 — Saved layout library
+
+- Made the layout builder independent from card-marquee assignments.
+- Custom layouts now require a name and save permanently as reusable layout
+  pills containing only their background and slot positions.
+- Added selection and deletion of saved custom layouts; deletion never removes
+  game artwork.
+- Preserved an existing pre-library Custom layout by importing it on upgrade.
+- Stored card assignments separately for each layout, so changing layouts does
+  not overwrite another layout's selections.
+- Reduced inactive pill size and contrast so only the selected layout is
+  visually highlighted.
+- The installer now prints the exact installed MarqueeMark version.
+
 ## v1.3.4-electrocoin.3 — Custom-editor drag fix
 
 - Kept the custom background visible while dragging or resizing a slot.

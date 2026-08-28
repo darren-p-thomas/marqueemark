@@ -76,13 +76,14 @@ card, or a fixed artwork card. Artwork choices use friendly game titles;
 an unknown hack or homebrew shows its PNG filename instead, for example
 `myhack.png`. Only one card can be the live NeoSD Pro card.
 
-The **Custom** template accepts any PNG or JPEG background and normalizes
-it to the 1366 × 360 canvas without stretching. Choose whether to crop to
-fill or fit it with black bars, then select a real Neo Geo slot count:
-**1, 2, 4, or 6**. The editor adds that many labelled mini-marquee objects;
-drag them and resize them with their aspect ratio locked. The guides do not
-appear on the finished display, and the card assignment controls update to
-match the chosen slot count.
+**Custom layouts** are a small layout library, separate from game-art
+assignments. Give a new layout a name, upload a PNG or JPEG background, and
+choose whether to crop to fill or fit it with black bars. Then select a real
+Neo Geo slot count: **1, 2, 4, or 6**. The editor adds that many labelled
+mini-marquee objects; drag them and resize them with their aspect ratio
+locked. Saving makes the layout a reusable pill, which can later be selected
+or deleted without touching game artwork. Once a layout is selected, its
+separate card-assignment controls appear underneath.
 
 ## How it works
 

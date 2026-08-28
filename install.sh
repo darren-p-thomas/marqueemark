@@ -75,6 +75,9 @@ else
   Workaround: copy marqueemark.py into $INSTALL_DIR yourself, then re-run."
 fi
 
+INSTALL_VERSION="$(sed -n 's/^VERSION = "\(.*\)"/\1/p' "$INSTALL_DIR/marqueemark.py" | head -n 1)"
+[ -n "$INSTALL_VERSION" ] && echo "  installed version: $INSTALL_VERSION"
+
 # Title labels for MAME-style artwork names. This is optional at runtime
 # (the admin page falls back to readable filenames), but updating it here
 # makes selectors show proper game titles such as "Tecmo World Soccer '96".
