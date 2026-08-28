@@ -3,6 +3,16 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.5 — Layout preview and editing
+
+- Moved custom-layout naming into a Save dialog instead of showing a name
+  field in the editor.
+- Added compact Preview and Edit controls next to saved layout pills.
+- Preview opens a modal with the background and non-interactive slot guides;
+  it closes with the X button or a click outside the modal.
+- Edit reopens a saved custom layout with its background and slot positions,
+  and supports renaming it on save.
+
 ## v1.3.4-electrocoin.4 — Saved layout library
 
 - Made the layout builder independent from card-marquee assignments.
