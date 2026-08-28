@@ -93,6 +93,10 @@ The built-in template library currently includes **Electrocoin four-slot** and
 Featuring” window for the generated mini marquee. Neo Geo two-, four-, and
 six-slot templates remain planned.
 
+MarqueeMark's Admin page also works with HDMI disconnected, so layouts can be
+created and managed while the cabinet is powered down. Reconnect the display
+and restart MarqueeMark to resume physical output.
+
 ### Optional AI-generated backgrounds
 
 The custom-layout editor can generate a background from a text prompt with a

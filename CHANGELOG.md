@@ -3,6 +3,12 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.13 — Headless Admin mode
+
+- MarqueeMark now starts its Admin server without HDMI connected, using an
+  off-screen surface when SDL/KMS cannot initialise a display.
+- Reconnect HDMI and restart the service to resume physical marquee output.
+
 ## v1.3.4-electrocoin.12 — Neo Geo one-slot template
 
 - Added a built-in Neo Geo one-slot marquee template at the native 1366 × 360

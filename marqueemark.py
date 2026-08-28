@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.12"
+VERSION = "1.3.4-electrocoin.13"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -1840,11 +1840,20 @@ class OverlayServer:
 class Display:
     def __init__(self, art_dir, rotate=0, electrocoin=False):
         pygame.init()
-        pygame.mouse.set_visible(False)
-        self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        self.electrocoin = electrocoin
+        self.headless = False
+        try:
+            pygame.mouse.set_visible(False)
+            self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        except pygame.error as e:
+            # The Admin service is useful with the cabinet powered down or
+            # HDMI unplugged. Keep it alive with an off-screen surface; a
+            # later service restart after reconnecting HDMI restores output.
+            self.headless = True
+            self.screen = pygame.Surface(ELECTROCOIN_BASE_SIZE if electrocoin else (1024, 768))
+            print("[MarqueeMark] no HDMI display (%s); running headless" % e)
         phys = self.screen.get_size()
 
-        self.electrocoin = electrocoin
         self.phys = phys
         cal = None if electrocoin else load_calibration()
         rect_l, tilt, saved_rotate, saved_dpad = cal if cal else (None, 0.0, None, 0)
@@ -1911,7 +1920,7 @@ class Display:
         if rot:
             surf = pygame.transform.rotate(surf, rot)
         self.screen.blit(surf, (0, 0))
-        pygame.display.flip()
+        if not self.headless: pygame.display.flip()
 
     def _fit(self, img):
         """Fill the calibrated rectangle exactly — the rect IS the window."""
@@ -2026,6 +2035,8 @@ class Display:
         board loses signal and drops to standby (backlight off)."""
         if self.screen is None or self.calibrating:
             return
+        if self.headless:
+            return
         # (manual_sleep is set by the caller for admin-page sleeps)
         pygame.display.quit()
         self.screen = None
@@ -2043,16 +2054,23 @@ class Display:
             return
         if self.screen is not None:
             return
+        if self.headless:
+            return
         _fb_blank(0)
-        pygame.display.init()
-        pygame.mouse.set_visible(False)
-        self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        try:
+            pygame.display.init()
+            pygame.mouse.set_visible(False)
+            self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        except pygame.error as e:
+            self.headless = True
+            self.screen = pygame.Surface(self.phys)
+            print("[MarqueeMark] HDMI wake failed (%s); continuing headless" % e)
         self.current = None
         self.wake_count += 1
         print("[MarqueeMark] display awake")
 
     def pump(self):
-        if self.screen is None:  # asleep — nothing to pump
+        if self.screen is None or self.headless:  # asleep/headless — nothing to pump
             return True
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
