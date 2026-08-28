@@ -40,11 +40,11 @@ say "Installing MarqueeMark for user: $USER_NAME"
 # ----------------------------------------------------------- dependencies
 say "Installing dependencies (this can take a minute)"
 sudo apt-get update -qq
-sudo apt-get install -y -qq python3-serial python3-pygame
+sudo apt-get install -y -qq python3-serial python3-pygame python3-pil
 
 # ----------------------------------------------------------------- files
 say "Setting up $INSTALL_DIR"
-sudo mkdir -p "$INSTALL_DIR/art"
+sudo mkdir -p "$INSTALL_DIR/art" "$INSTALL_DIR/bases"
 sudo chown -R "$USER_NAME:$USER_NAME" "$INSTALL_DIR"
 
 # Always try to fetch the latest version, so re-running this script is

@@ -64,6 +64,7 @@ Art management: open http://<pi-hostname>.local:8080/admin in any browser
 """
 
 import argparse
+import io
 import json
 import os
 import queue
@@ -85,13 +86,17 @@ BG = (0, 0, 0)
 
 RAM_SLOT = 4  # zero-based: flash slots 1-4 announce as 0-3, RAM as 4
 ART_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "art")
+BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bases")
 LASTGAME_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lastgame.json")
 GENERIC = "generic"  # art/generic.png — fallback marquee for the overlay
 ELECTROCOIN_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "electrocoin.json")
 GAME_TITLES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "game_titles.json")
 ELECTROCOIN_BASE_SIZE = (1366, 360)
 ELECTROCOIN_VIEWPORT_HEIGHT = 360
+ELECTROCOIN_SLOT_COUNTS = (1, 2, 4, 6)
+ELECTROCOIN_SLOT_RATIO = 176 / 230
 ELECTROCOIN_DEFAULT = {"base": "electrocoin-base.png",
+    "base_source": "builtin",
     "cards": [{"source": "fixed", "art": ""}, {"source": "fixed", "art": ""},
               {"source": "fixed", "art": ""}, {"source": "neosd", "art": ""}],
     "windows": [[65, 48, 176, 230], [442, 48, 178, 230], [752, 48, 174, 230], [1125, 48, 176, 230]]}
@@ -100,6 +105,20 @@ def _art_stem(value):
     value = os.path.basename(value.lower()) if isinstance(value, str) else ""
     if value.endswith(".png"): value = value[:-4]
     return value if value and all(c in "abcdefghijklmnopqrstuvwxyz0123456789_-" for c in value) else ""
+
+def _safe_base_name(value):
+    """A flat, generated custom-base filename (PNG only)."""
+    name = os.path.basename(value.lower()) if isinstance(value, str) else ""
+    return name if name.startswith("custom-") and _art_stem(name) else ""
+
+def _slot_rect(value):
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    try: x, y, w, h = (round(float(v)) for v in value)
+    except (TypeError, ValueError): return None
+    w, h = max(40, min(w, 1366)), max(40, min(h, 360))
+    x, y = max(0, min(x, 1366 - w)), max(0, min(y, 360 - h))
+    return [x, y, w, h]
 
 def load_game_titles():
     """Human-readable Neo Geo titles for MAME-style artwork filenames."""
@@ -114,18 +133,28 @@ GAME_TITLES = load_game_titles()
 
 def electro_config(raw=None):
     cfg = {"base": ELECTROCOIN_DEFAULT["base"], "cards": [dict(c) for c in ELECTROCOIN_DEFAULT["cards"]],
-           "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]]}
+           "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]], "base_source": "builtin"}
     if isinstance(raw, dict):
-        stem = _art_stem(raw.get("base"))
-        if stem: cfg["base"] = stem + ".png"
+        source = raw.get("base_source")
+        if source == "custom":
+            name = _safe_base_name(raw.get("base"))
+            if name: cfg["base"], cfg["base_source"] = name, "custom"
+        else:
+            stem = _art_stem(raw.get("base"))
+            if stem: cfg["base"] = stem + ".png"
         cards = raw.get("cards")
-        if isinstance(cards, list) and len(cards) == 4:
+        if isinstance(cards, list) and len(cards) in ELECTROCOIN_SLOT_COUNTS:
+            cfg["cards"] = []
             neosd_seen = False
-            for i, card in enumerate(cards):
+            for card in cards:
                 source = card.get("source") if isinstance(card, dict) else "blank"
                 source = source if source in ("fixed", "neosd", "blank") else "blank"
                 if source == "neosd": source = "blank" if neosd_seen else "neosd"; neosd_seen = True
-                cfg["cards"][i] = {"source": source, "art": _art_stem(card.get("art", "")) if isinstance(card, dict) else ""}
+                cfg["cards"].append({"source": source, "art": _art_stem(card.get("art", "")) if isinstance(card, dict) else ""})
+            windows = raw.get("windows")
+            if isinstance(windows, list) and len(windows) == len(cfg["cards"]):
+                parsed = [_slot_rect(r) for r in windows]
+                if all(parsed): cfg["windows"] = parsed
         elif isinstance(raw.get("fixed"), dict):  # migrate the original POC config
             for i, key in enumerate(("1", "2", "3")): cfg["cards"][i]["art"] = _art_stem(raw["fixed"].get(key, ""))
     return cfg
@@ -465,6 +494,18 @@ ADMIN_HTML = """<!DOCTYPE html>
   .template-pill.selected { background: #405489; border-color: #86a8ff; color: #fff;
                             font-weight: 600; }
   .template-pill:disabled { cursor: not-allowed; opacity: .48; }
+  #custom-editor { margin-top: 14px; padding: 14px; border: 1px solid #30354b; border-radius: 10px; background: #11121b; }
+  #layout-canvas { position: relative; width: min(100%, 1000px); aspect-ratio: 1366 / 360;
+                   margin-top: 12px; overflow: hidden; background: #050508 center / cover no-repeat;
+                   border: 1px solid #5e6380; user-select: none; touch-action: none; }
+  .layout-slot { position: absolute; box-sizing: border-box; border: 2px solid #31d7e9;
+                 background: rgba(49, 215, 233, .18); color: #fff; cursor: grab; display: grid; place-items: center;
+                 font-size: clamp(9px, 1.5vw, 15px); font-weight: 700; text-shadow: 0 1px 2px #000; }
+  .layout-slot:active { cursor: grabbing; }
+  .layout-slot button { position: absolute; right: 2px; top: 2px; width: 20px; height: 20px; padding: 0;
+                        border: 0; border-radius: 50%; background: #b4283b; color: #fff; cursor: pointer; }
+  .slot-resize { position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px;
+                 background: #fff; border: 2px solid #168e9c; border-radius: 2px; cursor: nwse-resize; }
 </style>
 </head>
 <body>
@@ -477,6 +518,12 @@ ADMIN_HTML = """<!DOCTYPE html>
   <h3 class="subheading">Base image</h3>
   <p class="hint">Choose the cabinet template for the wide digital marquee. More built-in layouts and custom bases are coming next.</p>
   <div id="eco-base" class="template-pills" role="radiogroup" aria-label="Base image template"></div>
+  <div id="custom-editor" class="hidden">
+    <p class="hint">Upload a PNG or JPEG background. It is converted to 1366 × 360, then position the mini-marquee objects over it. Slot labels are editing guides only.</p>
+    <div class="cal-row"><input id="custom-file" type="file" accept="image/png,image/jpeg"><select id="custom-fit"><option value="cover">Fill canvas (crop edges)</option><option value="contain">Fit canvas (black bars if needed)</option></select><button id="custom-upload" class="btn">Upload background</button></div>
+    <div id="layout-canvas" aria-label="Custom marquee layout editor"></div>
+    <div class="cal-actions"><span class="hint" style="margin:auto 0">Mini-marquees</span><div id="slot-count-pills" class="template-pills" role="radiogroup" aria-label="Number of mini-marquee slots"></div></div>
+  </div>
   <h3 class="subheading">Card marquee assignment</h3>
   <p class="hint">Choose what each card window shows. NeoSD Pro is the special live card; artwork choices are labelled with game titles.</p>
   <div id="eco-cards"></div>
@@ -615,31 +662,23 @@ drop.ondrop = e => { e.preventDefault(); drop.classList.remove('hot');
                      upload(e.dataTransfer.files); };
 refresh();
 
-async function loadEco() {
-  const r = await fetch('/electrocoin/config'); if (!r.ok) return;
-  const c = await r.json(), files = await (await fetch('/list')).json();
-  let titles = {}; try { titles = await (await fetch('/game-titles')).json(); } catch (_) {}
-  document.getElementById('electrocoin-section').classList.remove('hidden');
-  const base=document.getElementById('eco-base'); base.innerHTML=''; base.dataset.value=c.base;
-  const addBasePill=(label, value, disabled=false) => {
-    const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill';
-    pill.textContent=label; pill.disabled=disabled; pill.setAttribute('role', 'radio');
-    const choose=() => { base.dataset.value=value; [...base.children].forEach(p => {
-      const active=p.dataset.value === value; p.classList.toggle('selected', active); p.setAttribute('aria-checked', active);
-    }); };
-    pill.dataset.value=value; pill.setAttribute('aria-checked', value === c.base); if (value === c.base) pill.classList.add('selected');
-    if (!disabled) pill.onclick=choose; base.appendChild(pill);
-  };
-  addBasePill('Electrocoin four-slot', 'electrocoin-base.png');
-  ['Neo Geo six-slot', 'Neo Geo four-slot', 'Neo Geo two-slot', 'Neo Geo one-slot', 'Custom'].forEach(name =>
-    addBasePill(name + ' · coming soon', '', true));
-  // Keep an already-saved custom base visible until the custom-base editor
-  // arrives, rather than silently changing someone's existing selection.
-  if (c.base !== 'electrocoin-base.png') {
-    addBasePill('Current custom base: ' + c.base, c.base);
-  }
+const ECO_DEFAULT_WINDOWS=[[65,48,176,230],[442,48,178,230],[752,48,174,230],[1125,48,176,230]];
+const ECO_SLOT_RATIO=176/230, ECO_SLOT_COUNTS=[1,2,4,6];
+let ecoConfig=null, ecoFiles=[], ecoTitles={};
+const blankCard=()=>({source:'blank',art:''});
+
+function isCustom() { return document.getElementById('eco-base').dataset.template === 'custom'; }
+function pullCards() {
+  if (!ecoConfig) return;
+  ecoConfig.cards=[...document.querySelectorAll('#eco-cards .eco-card')].map(pick => {
+    if (pick.value === '__neosd__') return {source:'neosd',art:''};
+    return pick.value ? {source:'fixed',art:pick.value} : blankCard();
+  });
+}
+function renderCards() {
   const host=document.getElementById('eco-cards'); host.innerHTML='';
-  c.cards.forEach((card, i) => {
+  if (!ecoConfig.cards.length) { host.innerHTML='<p class="hint">Choose 1, 2, 4, or 6 mini-marquees above to create card assignments.</p>'; return; }
+  ecoConfig.cards.forEach((card, i) => {
     const row=document.createElement('div'); row.className='cal-row'; row.innerHTML='<span class="label">Card '+(i+1)+'</span>';
     const pick=document.createElement('select'); pick.className='eco-card';
     const special=document.createElement('optgroup'); special.label='Special';
@@ -647,13 +686,13 @@ async function loadEco() {
     special.append(new Option('★ NeoSD Pro (live marquee)', '__neosd__', false, card.source === 'neosd'));
     pick.appendChild(special);
     const art=document.createElement('optgroup'); art.label='Artwork';
-    for (const f of files) {
+    for (const f of ecoFiles) {
       const stem=f.replace(/\.png$/, '');
-      if (f === 'generic.png' || f === c.base) continue;
+      if (f === 'generic.png' || (ecoConfig.base_source !== 'custom' && f === ecoConfig.base)) continue;
       // A verified title keeps the selector clean. A literal filename is
       // deliberately retained for unknown hacks/homebrew, so it is clear
       // which labels still need mapping rather than silently guessing.
-      art.append(new Option(titles[stem] || f, stem, false,
+      art.append(new Option(ecoTitles[stem] || f, stem, false,
         card.source === 'fixed' && stem === card.art));
     }
     pick.appendChild(art); row.append(pick); host.appendChild(row);
@@ -671,13 +710,95 @@ async function loadEco() {
     });
   };
   [...document.querySelectorAll('.eco-card')].forEach(pick =>
-    pick.onchange = () => syncCards(pick));
+    pick.onchange = () => { syncCards(pick); pullCards(); });
   syncCards();
 }
-document.getElementById('eco-save').onclick = () => {
-  const q=new URLSearchParams(); q.set('base', document.getElementById('eco-base').dataset.value);
-  document.querySelectorAll('#eco-cards .eco-card').forEach((pick,i)=>q.set('card'+i,pick.value));
-  fetch('/electrocoin/config?'+q, {method:'POST'});
+
+function renderCustomEditor() {
+  const panel=document.getElementById('custom-editor'), canvas=document.getElementById('layout-canvas');
+  panel.classList.toggle('hidden', !isCustom());
+  if (!isCustom()) return;
+  canvas.innerHTML='';
+  canvas.style.backgroundImage=ecoConfig.base ? 'url(/base/'+encodeURIComponent(ecoConfig.base)+'?t='+Date.now()+')' : 'none';
+  const countPills=document.getElementById('slot-count-pills'); countPills.innerHTML='';
+  ECO_SLOT_COUNTS.forEach(count => {
+    const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill'; pill.textContent=count+' slot'+(count===1?'':'s');
+    const active=ecoConfig.windows.length===count; pill.classList.toggle('selected',active); pill.setAttribute('role','radio'); pill.setAttribute('aria-checked',active);
+    pill.onclick=()=>setSlotCount(count); countPills.appendChild(pill);
+  });
+  ecoConfig.windows.forEach((slot, index) => {
+    const el=document.createElement('div'); el.className='layout-slot';
+    el.style.left=(slot[0]/1366*100)+'%'; el.style.top=(slot[1]/360*100)+'%';
+    el.style.width=(slot[2]/1366*100)+'%'; el.style.height=(slot[3]/360*100)+'%';
+    el.textContent='Slot '+(index+1);
+    const handle=document.createElement('span'); handle.className='slot-resize'; handle.title='Resize slot';
+    handle.onpointerdown=e=>startSlotDrag(e,index,'resize');
+    el.append(handle); el.onpointerdown=e=>{ if (e.target===el) startSlotDrag(e,index,'move'); };
+    canvas.appendChild(el);
+  });
+}
+function defaultSlots(count) {
+  const h=count>=6?190:count>=4?220:230, w=Math.round(h*ECO_SLOT_RATIO), gap=(1366-count*w)/(count+1), y=Math.round((360-h)/2);
+  return Array.from({length:count},(_,i)=>[Math.round(gap+(w+gap)*i),y,w,h]);
+}
+function setSlotCount(count) {
+  pullCards(); const oldWindows=ecoConfig.windows, oldCards=ecoConfig.cards, defaults=defaultSlots(count);
+  ecoConfig.windows=defaults.map((slot,i)=>oldWindows[i] || slot);
+  ecoConfig.cards=Array.from({length:count},(_,i)=>oldCards[i] || blankCard());
+  renderCustomEditor(); renderCards();
+}
+function startSlotDrag(event, index, mode) {
+  event.preventDefault(); event.stopPropagation();
+  const canvas=document.getElementById('layout-canvas'), bounds=canvas.getBoundingClientRect(), start=[...ecoConfig.windows[index]], x0=event.clientX, y0=event.clientY;
+  const move=e=>{
+    const dx=(e.clientX-x0)*1366/bounds.width, dy=(e.clientY-y0)*360/bounds.height;
+    let [x,y,w,h]=start;
+    if (mode === 'move') { x=Math.max(0,Math.min(1366-w,Math.round(x+dx))); y=Math.max(0,Math.min(360-h,Math.round(y+dy))); }
+    else { w=Math.max(60,Math.min(1366-x,(360-y)*ECO_SLOT_RATIO,Math.round(w+dx))); h=Math.round(w/ECO_SLOT_RATIO); }
+    ecoConfig.windows[index]=[x,y,w,h]; renderCustomEditor();
+  };
+  const end=()=>{ window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',end); };
+  window.addEventListener('pointermove',move); window.addEventListener('pointerup',end);
+}
+function renderBasePills() {
+  const base=document.getElementById('eco-base'); base.innerHTML=''; base.dataset.template=ecoConfig.base_source === 'custom' ? 'custom' : 'builtin';
+  const add=(label, template, disabled=false) => {
+    const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill'; pill.textContent=label; pill.disabled=disabled;
+    pill.dataset.template=template; pill.setAttribute('role','radio');
+    const selected=base.dataset.template===template; pill.classList.toggle('selected',selected); pill.setAttribute('aria-checked',selected);
+    if (!disabled) pill.onclick=()=>{
+      pullCards(); base.dataset.template=template;
+      if (template==='builtin') { ecoConfig.base='electrocoin-base.png'; ecoConfig.base_source='builtin'; ecoConfig.windows=ECO_DEFAULT_WINDOWS.map(r=>[...r]); ecoConfig.cards=(ecoConfig.cards.concat([blankCard(),blankCard(),blankCard(),blankCard()])).slice(0,4); }
+      else if (ecoConfig.base_source!=='custom') { ecoConfig.base=''; ecoConfig.base_source='custom'; ecoConfig.windows=[]; ecoConfig.cards=[]; }
+      renderBasePills(); renderCustomEditor(); renderCards();
+    };
+    base.appendChild(pill);
+  };
+  add('Electrocoin four-slot','builtin');
+  ['Neo Geo six-slot','Neo Geo four-slot','Neo Geo two-slot','Neo Geo one-slot'].forEach(name=>add(name+' · coming soon','',true));
+  add('Custom','custom');
+}
+async function uploadCustomBase() {
+  const file=document.getElementById('custom-file').files[0]; if (!file) { alert('Choose a PNG or JPEG background first.'); return; }
+  const button=document.getElementById('custom-upload'); button.disabled=true; button.textContent='Uploading…';
+  try {
+    const fit=document.getElementById('custom-fit').value;
+    const r=await fetch('/base/upload?fit='+fit,{method:'POST',body:file}); if (!r.ok) throw new Error(await r.text());
+    const result=await r.json(); ecoConfig.base=result.name; ecoConfig.base_source='custom'; renderCustomEditor();
+  } catch (e) { alert('Background upload failed: '+e.message); }
+  button.disabled=false; button.textContent='Upload background';
+}
+document.getElementById('custom-upload').onclick=uploadCustomBase;
+async function loadEco() {
+  const r=await fetch('/electrocoin/config'); if (!r.ok) return;
+  ecoConfig=await r.json(); ecoFiles=await (await fetch('/list')).json(); try { ecoTitles=await (await fetch('/game-titles')).json(); } catch (_) {}
+  document.getElementById('electrocoin-section').classList.remove('hidden'); renderBasePills(); renderCustomEditor(); renderCards();
+}
+document.getElementById('eco-save').onclick=async()=>{
+  pullCards(); if (isCustom() && (!ecoConfig.base || !ecoConfig.windows.length)) { alert('Upload a background and add at least one mini-marquee slot first.'); return; }
+  const q=new URLSearchParams(); q.set('base',ecoConfig.base); q.set('base_source',isCustom()?'custom':'builtin'); q.set('windows',JSON.stringify(ecoConfig.windows));
+  ecoConfig.cards.forEach((card,i)=>q.set('card'+i,card.source==='neosd'?'__neosd__':card.source==='fixed'?card.art:''));
+  const r=await fetch('/electrocoin/config?'+q,{method:'POST'}); if (!r.ok) { alert('Could not save layout.'); return; } ecoConfig=await r.json(); renderBasePills(); renderCustomEditor(); renderCards();
 };
 loadEco();
 
@@ -905,6 +1026,8 @@ class OverlayServer:
                     self._serve_events()
                 elif path.startswith("/art/"):
                     self._serve_art(path[len("/art/"):])
+                elif path.startswith("/base/"):
+                    self._serve_base(path[len("/base/"):])
                 else:
                     self._send(404, "text/plain", b"not found")
 
@@ -936,14 +1059,27 @@ class OverlayServer:
                     self._handle_delete(params.get("name", ""))
                 elif path == "/select":
                     self._handle_select(params.get("name", ""))
+                elif path == "/base/upload":
+                    self._handle_base_upload(params.get("fit", "cover"))
                 elif path == "/electrocoin/config":
                     if not server.display.electrocoin:
                         self._send(404, "text/plain", b"Electrocoin mode disabled")
                     else:
                         cfg = electro_config(server.display.electro_config)
-                        if "base" in params:
+                        if params.get("base_source") == "custom":
+                            name = _safe_base_name(params.get("base", ""))
+                            if name: cfg["base"], cfg["base_source"] = name, "custom"
+                        elif "base" in params:
                             stem = _art_stem(params["base"])
-                            if stem: cfg["base"] = stem + ".png"
+                            if stem: cfg["base"], cfg["base_source"] = stem + ".png", "builtin"
+                        if "windows" in params:
+                            try: windows = json.loads(params["windows"])
+                            except ValueError: windows = None
+                            if isinstance(windows, list) and len(windows) in ELECTROCOIN_SLOT_COUNTS:
+                                parsed = [_slot_rect(slot) for slot in windows]
+                                if all(parsed):
+                                    cfg["windows"] = parsed
+                                    cfg["cards"] = (cfg["cards"] + [{"source": "blank", "art": ""}] * len(parsed))[:len(parsed)]
                         neosd_seen = False
                         for i, card in enumerate(cfg["cards"]):
                             value = params.get("card" + str(i))
@@ -1033,6 +1169,32 @@ class OverlayServer:
                 except OSError as e:
                     self._send(500, "text/plain", str(e).encode())
 
+            def _handle_base_upload(self, fit):
+                """Normalize a user background to the physical marquee canvas."""
+                length = int(self.headers.get("Content-Length") or 0)
+                if not 0 < length <= MAX_UPLOAD:
+                    self._send(413, "text/plain", b"file too large")
+                    return
+                try:
+                    from PIL import Image, ImageOps, UnidentifiedImageError
+                    data = self.rfile.read(length)
+                    with Image.open(io.BytesIO(data)) as raw:
+                        raw.load()
+                        image = raw.convert("RGB")
+                    size = ELECTROCOIN_BASE_SIZE
+                    if fit == "contain":
+                        image.thumbnail(size, Image.Resampling.LANCZOS)
+                        canvas = Image.new("RGB", size, (0, 0, 0))
+                        canvas.paste(image, ((size[0]-image.width)//2, (size[1]-image.height)//2))
+                    else:
+                        canvas = ImageOps.fit(image, size, method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+                    os.makedirs(BASE_DIR, exist_ok=True)
+                    name = "custom-%d.png" % int(time.time() * 1000)
+                    canvas.save(os.path.join(BASE_DIR, name), "PNG", optimize=True)
+                    self._send(200, "application/json", json.dumps({"name": name}).encode())
+                except (OSError, ValueError, UnidentifiedImageError):
+                    self._send(400, "text/plain", b"could not read that image")
+
             def _handle_delete(self, raw_name):
                 name = _safe_art_name(raw_name)
                 if not name:
@@ -1059,6 +1221,18 @@ class OverlayServer:
                                {"Cache-Control": "no-cache"})
                 except OSError:
                     self._send(404, "text/plain", b"no art")
+
+            def _serve_base(self, name):
+                name = _safe_base_name(name)
+                candidate = os.path.join(BASE_DIR, name) if name else ""
+                if not candidate or not os.path.isfile(candidate):
+                    self._send(404, "text/plain", b"no base")
+                    return
+                try:
+                    with open(candidate, "rb") as f: data = f.read()
+                    self._send(200, "image/png", data, {"Cache-Control": "no-cache"})
+                except OSError:
+                    self._send(404, "text/plain", b"no base")
 
             def _serve_events(self):
                 q = queue.Queue()
@@ -1200,10 +1374,16 @@ class Display:
         try: return pygame.image.load(os.path.join(self.art_dir, stem + ".png")).convert() if stem else None
         except (pygame.error, OSError): return None
 
+    def _electro_base(self):
+        cfg = self.electro_config
+        directory = BASE_DIR if cfg.get("base_source") == "custom" else self.art_dir
+        try: return pygame.image.load(os.path.join(directory, cfg["base"])).convert()
+        except (pygame.error, OSError): return None
+
     def _electro_surface(self):
         surf = pygame.Surface(self.phys); surf.fill(BG)
         vp = pygame.Rect(0, 0, self.phys[0], min(ELECTROCOIN_VIEWPORT_HEIGHT, self.phys[1]))
-        base = self._electro_art(os.path.splitext(self.electro_config["base"])[0])
+        base = self._electro_base()
         if base: surf.blit(pygame.transform.smoothscale(base, vp.size), vp)
         sx, sy = vp.w / 1366, vp.h / 360
         for r, card in zip(self.electro_config["windows"], self.electro_config["cards"]):
