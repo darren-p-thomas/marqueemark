@@ -3,6 +3,13 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.17 — Layout labels and AI provider memory
+
+- Expanded layout-pill labels to 50 characters before truncation; the full
+  name remains available on hover.
+- Remembered the last selected AI provider in the browser, independently of
+  whether its API key is remembered on that device.
+
 ## v1.3.4-electrocoin.16 — Assigned-art previews
 
 - The live Admin preview now shows a NeoSD Pro mini-marquee placeholder until

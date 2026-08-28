@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.16"
+VERSION = "1.3.4-electrocoin.17"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -1033,7 +1033,7 @@ function renderBasePills() {
   const add=(layout, disabled=false) => {
     const ident=layout.id, label=layout.name;
     const choice=document.createElement('div'); choice.className='layout-choice';
-    const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill'; pill.textContent=label.length>15?label.slice(0,15)+'…':label; pill.title=label; pill.disabled=disabled;
+    const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill'; pill.textContent=label.length>50?label.slice(0,50)+'…':label; pill.title=label; pill.disabled=disabled;
     pill.dataset.layoutId=ident; pill.setAttribute('role','radio');
     const selected=!editingLayout && ecoConfig.selected_layout_id===ident; pill.classList.toggle('selected',selected); pill.setAttribute('aria-checked',selected);
     if (!disabled) pill.onclick=()=>{
@@ -1078,14 +1078,17 @@ document.getElementById('uniform-leader').onchange=e=>{ uniformLeader=Number(e.t
 // image through /base/upload; keys remain in this browser (session memory by
 // default, localStorage only after the user explicitly opts in).
 const AI_SETTINGS_KEY='marqueemark-ai-settings'; let aiSessionKeys={}, aiModelsByProvider={}, aiSelectedModels={};
-function readAiSettings() { try { return JSON.parse(localStorage.getItem(AI_SETTINGS_KEY)) || {keys:{}}; } catch (_) { return {keys:{}}; } }
+function readAiSettings() { try { return JSON.parse(localStorage.getItem(AI_SETTINGS_KEY)) || {keys:{},provider:'openai'}; } catch (_) { return {keys:{},provider:'openai'}; } }
 function writeAiSettings(settings) { localStorage.setItem(AI_SETTINGS_KEY,JSON.stringify(settings)); }
 function aiProvider() { return document.getElementById('ai-provider').value; }
 function restoreAiKey() {
-  const provider=aiProvider(), saved=readAiSettings().keys || {};
+  const settings=readAiSettings(), provider=aiProvider(), saved=settings.keys || {};
   document.getElementById('ai-key').value=aiSessionKeys[provider] || saved[provider] || '';
   document.getElementById('ai-remember').checked=!!saved[provider];
   renderAiModels();
+}
+function rememberAiProvider() {
+  const settings=readAiSettings(); settings.provider=aiProvider(); writeAiSettings(settings);
 }
 function rememberAiKey() {
   const provider=aiProvider(), key=document.getElementById('ai-key').value.trim(), remember=document.getElementById('ai-remember').checked;
@@ -1158,12 +1161,14 @@ async function generateAiBackground() {
   } catch (e) { status.textContent='Generation failed: '+e.message; }
   button.disabled=false; button.textContent='Generate background';
 }
-document.getElementById('ai-provider').onchange=restoreAiKey;
+document.getElementById('ai-provider').onchange=()=>{ rememberAiProvider(); restoreAiKey(); };
 document.getElementById('ai-key').oninput=e=>{ aiSessionKeys[aiProvider()]=e.target.value; };
 document.getElementById('ai-remember').onchange=rememberAiKey;
 document.getElementById('ai-validate').onclick=validateAiKey;
 document.getElementById('ai-model').onchange=e=>{ aiSelectedModels[aiProvider()]=e.target.value; };
 document.getElementById('ai-generate').onclick=generateAiBackground;
+const rememberedAiProvider=readAiSettings().provider;
+if (rememberedAiProvider==='openai' || rememberedAiProvider==='gemini') document.getElementById('ai-provider').value=rememberedAiProvider;
 restoreAiKey();
 async function selectLayout(ident) {
   const r=await fetch('/electrocoin/layout/select?id='+encodeURIComponent(ident),{method:'POST'});
