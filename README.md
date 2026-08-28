@@ -67,6 +67,15 @@ Add the PNGs from the built-in art manager page.
 I include a "generic.png" image of the Gamesboro logo
 so that you can align your image before downloading the pack.
 
+### Electrocoin four-slot layout
+
+`--electrocoin` is the wide four-card layout used by the Electrocoin
+conversion. Its Admin page lets you choose a compatible base PNG and one
+choice per card: blank, the highlighted live **NeoSD Pro** card, or a
+fixed artwork card. Artwork choices use friendly game titles while still
+showing the PNG filename, for example `Tecmo World Soccer '96 — tws96.png`.
+Only one card can be the live NeoSD Pro card.
+
 ## How it works
 
 The NeoSD Pro's USB port appears as a standard serial device

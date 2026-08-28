@@ -75,6 +75,18 @@ else
   Workaround: copy marqueemark.py into $INSTALL_DIR yourself, then re-run."
 fi
 
+# Title labels for MAME-style artwork names. This is optional at runtime
+# (the admin page falls back to readable filenames), but updating it here
+# makes selectors show proper game titles such as "Tecmo World Soccer '96".
+say "Downloading game title labels"
+TMP_TITLES="$(mktemp)"
+if curl -fsSL "$REPO_RAW/game_titles.json" -o "$TMP_TITLES" && [ -s "$TMP_TITLES" ]; then
+  mv "$TMP_TITLES" "$INSTALL_DIR/game_titles.json"
+else
+  rm -f "$TMP_TITLES"
+  echo "  could not download title labels; filename labels will be used"
+fi
+
 # ------------------------------------------------------- starter artwork
 # A fallback marquee so the panel shows something on first boot instead
 # of a black rectangle. Only installed if the user has none: an update

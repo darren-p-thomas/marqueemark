@@ -88,6 +88,7 @@ ART_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "art")
 LASTGAME_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lastgame.json")
 GENERIC = "generic"  # art/generic.png — fallback marquee for the overlay
 ELECTROCOIN_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "electrocoin.json")
+GAME_TITLES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "game_titles.json")
 ELECTROCOIN_BASE_SIZE = (1366, 360)
 ELECTROCOIN_VIEWPORT_HEIGHT = 360
 ELECTROCOIN_DEFAULT = {"base": "electrocoin-base.png",
@@ -99,6 +100,17 @@ def _art_stem(value):
     value = os.path.basename(value.lower()) if isinstance(value, str) else ""
     if value.endswith(".png"): value = value[:-4]
     return value if value and all(c in "abcdefghijklmnopqrstuvwxyz0123456789_-" for c in value) else ""
+
+def load_game_titles():
+    """Human-readable Neo Geo titles for MAME-style artwork filenames."""
+    try:
+        with open(GAME_TITLES_PATH) as f:
+            titles = json.load(f)
+        return {str(k): str(v) for k, v in titles.items()}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+GAME_TITLES = load_game_titles()
 
 def electro_config(raw=None):
     cfg = {"base": ELECTROCOIN_DEFAULT["base"], "cards": [dict(c) for c in ELECTROCOIN_DEFAULT["cards"]],
@@ -454,7 +466,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 
 <section id="electrocoin-section" class="hidden">
   <h2>Electrocoin four-slot layout</h2>
-  <p class="hint">Choose any uploaded PNG as the base, then assign each card as fixed art, blank, or the live NeoSD Pro card.</p>
+  <p class="hint">Choose any uploaded PNG as the base, then choose what each card shows. NeoSD Pro is the special live card; artwork choices are labelled with game titles.</p>
   <div class="cal-row"><span class="label">Base</span><select id="eco-base"></select></div>
   <div id="eco-cards"></div>
   <button id="eco-save" class="btn primary">Save layout</button>
@@ -595,39 +607,46 @@ refresh();
 async function loadEco() {
   const r = await fetch('/electrocoin/config'); if (!r.ok) return;
   const c = await r.json(), files = await (await fetch('/list')).json();
+  let titles = {}; try { titles = await (await fetch('/game-titles')).json(); } catch (_) {}
   document.getElementById('electrocoin-section').classList.remove('hidden');
   const base=document.getElementById('eco-base'); base.innerHTML='';
   for (const f of files) { const o=new Option(f, f, false, f === c.base); base.appendChild(o); }
   const host=document.getElementById('eco-cards'); host.innerHTML='';
   c.cards.forEach((card, i) => {
     const row=document.createElement('div'); row.className='cal-row'; row.innerHTML='<span class="label">Card '+(i+1)+'</span>';
-    const type=document.createElement('select'); type.className='eco-type';
-    for (const v of ['fixed','neosd','blank']) type.add(new Option(v === 'neosd' ? 'NeoSD Pro (live)' : v, v, false, v === card.source));
-    const art=document.createElement('select'); art.className='eco-art'; art.innerHTML='<option value="">— empty —</option>';
-    for (const f of files) { const stem=f.replace(/\.png$/, ''); art.add(new Option(f, stem, false, stem === card.art)); }
-    row.append(type, art); host.appendChild(row);
+    const pick=document.createElement('select'); pick.className='eco-card';
+    const special=document.createElement('optgroup'); special.label='Special';
+    special.append(new Option('— Blank —', '', false, card.source === 'blank'));
+    special.append(new Option('★ NeoSD Pro (live marquee)', '__neosd__', false, card.source === 'neosd'));
+    pick.appendChild(special);
+    const art=document.createElement('optgroup'); art.label='Artwork';
+    for (const f of files) {
+      const stem=f.replace(/\.png$/, '');
+      if (f === 'generic.png' || f === c.base) continue;
+      const friendly=titles[stem] || stem.replace(/[-_]+/g, ' ').replace(/\b\w/g, x => x.toUpperCase());
+      art.append(new Option(friendly + ' — ' + f, stem, false, card.source === 'fixed' && stem === card.art));
+    }
+    pick.appendChild(art); row.append(pick); host.appendChild(row);
   });
   const syncCards = changed => {
     const rows=[...document.querySelectorAll('#eco-cards .cal-row')];
     const changedRow = changed ? changed.closest('.cal-row') : null;
-    const live = changed && changed.value === 'neosd' ? rows.indexOf(changedRow) :
-      rows.findIndex(row => row.querySelector('.eco-type').value === 'neosd');
+    const live = changed && changed.value === '__neosd__' ? rows.indexOf(changedRow) :
+      rows.findIndex(row => row.querySelector('.eco-card').value === '__neosd__');
     rows.forEach((row, i) => {
-      const type=row.querySelector('.eco-type'), art=row.querySelector('.eco-art');
-      if (type.value === 'neosd' && i !== live) type.value='blank';
-      art.disabled = type.value !== 'fixed';
-      art.style.visibility = type.value === 'fixed' ? 'visible' : 'hidden';
-      [...type.options].forEach(option => option.disabled =
-        option.value === 'neosd' && live !== -1 && i !== live);
+      const pick=row.querySelector('.eco-card');
+      if (pick.value === '__neosd__' && i !== live) pick.value='';
+      [...pick.options].forEach(option => option.disabled =
+        option.value === '__neosd__' && live !== -1 && i !== live);
     });
   };
-  [...document.querySelectorAll('.eco-type')].forEach(type =>
-    type.onchange = () => syncCards(type));
+  [...document.querySelectorAll('.eco-card')].forEach(pick =>
+    pick.onchange = () => syncCards(pick));
   syncCards();
 }
 document.getElementById('eco-save').onclick = () => {
   const q=new URLSearchParams(); q.set('base', document.getElementById('eco-base').value);
-  document.querySelectorAll('#eco-cards .cal-row').forEach((row,i)=>{q.set('source'+i,row.querySelector('.eco-type').value);q.set('art'+i,row.querySelector('.eco-art').value);});
+  document.querySelectorAll('#eco-cards .eco-card').forEach((pick,i)=>q.set('card'+i,pick.value));
   fetch('/electrocoin/config?'+q, {method:'POST'});
 };
 loadEco();
@@ -830,6 +849,9 @@ class OverlayServer:
                             names = []
                     self._send(200, "application/json",
                                json.dumps(sorted(names)).encode())
+                elif path == "/game-titles":
+                    self._send(200, "application/json",
+                               json.dumps(GAME_TITLES).encode())
                 elif path == "/current":
                     with server._lock:
                         cur = server._current
@@ -894,11 +916,16 @@ class OverlayServer:
                             if stem: cfg["base"] = stem + ".png"
                         neosd_seen = False
                         for i, card in enumerate(cfg["cards"]):
-                            source = params.get("source" + str(i), card["source"])
-                            source = source if source in ("fixed", "neosd", "blank") else "blank"
+                            value = params.get("card" + str(i))
+                            if value is not None:
+                                source = "neosd" if value == "__neosd__" else "fixed" if _art_stem(value) else "blank"
+                                card["art"] = _art_stem(value) if source == "fixed" else ""
+                            else:  # accepts the older two-control admin page too
+                                source = params.get("source" + str(i), card["source"])
+                                source = source if source in ("fixed", "neosd", "blank") else "blank"
+                                if "art" + str(i) in params: card["art"] = _art_stem(params["art" + str(i)])
                             if source == "neosd": source = "blank" if neosd_seen else "neosd"; neosd_seen = True
                             card["source"] = source
-                            if "art" + str(i) in params: card["art"] = _art_stem(params["art" + str(i)])
                         cfg = save_electrocoin_config(cfg)
                         CAL_QUEUE.put(("electro_config", cfg))
                         self._send(200, "application/json", json.dumps(cfg).encode())
