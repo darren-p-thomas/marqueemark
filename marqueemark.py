@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.18"
+VERSION = "1.3.4-electrocoin.19"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -103,10 +103,10 @@ ELECTROCOIN_DEFAULT = {"base": "electrocoin-base.png",
               {"source": "fixed", "art": ""}, {"source": "neosd", "art": ""}],
     "windows": [[65, 48, 176, 230], [442, 48, 178, 230], [752, 48, 174, 230], [1125, 48, 176, 230]]}
 BUILTIN_LAYOUTS = {
-    "electrocoin": {"id": "electrocoin", "name": "Electrocoin four-slot", "base": "electrocoin-base.png",
+    "electrocoin": {"id": "electrocoin", "name": "Electrocoin 4 Slot", "base": "electrocoin-base.png",
                     "base_source": "builtin", "background_type": "image", "background_color": "#000000",
                     "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]]},
-    "neogeo-one-slot": {"id": "neogeo-one-slot", "name": "Neo Geo one-slot", "base": "neogeo-one-slot.png",
+    "neogeo-one-slot": {"id": "neogeo-one-slot", "name": "Neo Geo 1 Slot", "base": "neogeo-one-slot.png",
                         "base_source": "builtin", "background_type": "image", "background_color": "#000000",
                         "windows": [[1053, 34, 231, 290]]},
 }
@@ -614,7 +614,12 @@ ADMIN_HTML = """<!DOCTYPE html>
   .layout-icon { width: 27px; height: 27px; padding: 0; border: 1px solid #292f42; border-radius: 50%;
                  background: #171a26; color: #bcc4d8; cursor: pointer; font-size: .9rem; }
   .layout-icon:hover { color: #fff; border-color: #667aaf; background: #20283e; }
-  .layout-live-badge { color: #a8e9b6; font-size: .7rem; white-space: nowrap; }
+  .layout-library-group { margin-top: 14px; }
+  .layout-library-group:first-child { margin-top: 8px; }
+  .layout-library-title { margin: 0 0 4px; color: #9ea6bc; font-size: .78rem; font-weight: 600;
+                          letter-spacing: .03em; text-transform: uppercase; }
+  .layout-live-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #63d986;
+                     box-shadow: 0 0 0 2px rgba(99,217,134,.16); }
   .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
                     background: rgba(0,0,0,.72); padding: 20px; }
   .modal { width: min(900px, 100%); max-height: 90vh; overflow: auto; position: relative;
@@ -667,8 +672,8 @@ ADMIN_HTML = """<!DOCTYPE html>
   </section>
   <h3 class="subheading">Marquee layout</h3>
   <p class="hint">Choose a saved layout, or create a new one. Layouts contain only the background and mini-marquee positions.</p>
-  <div id="eco-base" class="template-pills" role="radiogroup" aria-label="Marquee layout"></div>
-  <p id="layout-live-state" class="hint" style="margin-top:8px"></p>
+  <div class="layout-library-group"><p class="layout-library-title">Built-in templates</p><div id="eco-builtins" class="template-pills" role="radiogroup" aria-label="Built-in marquee templates"></div></div>
+  <div class="layout-library-group"><p class="layout-library-title">Your layouts</p><div id="eco-customs" class="template-pills" role="radiogroup" aria-label="Your marquee layouts"></div></div>
   <div id="custom-editor" class="hidden">
     <p class="hint">Choose either an image or a solid colour background, then position the mini-marquee objects over it. Slot labels are editing guides only.</p>
     <div class="cal-row"><input id="custom-file" type="file" accept="image/png,image/jpeg"><select id="custom-fit"><option value="cover">Fill canvas (crop edges)</option><option value="contain">Fit canvas (black bars if needed)</option></select><button id="custom-upload" class="btn">Upload image</button></div>
@@ -961,7 +966,7 @@ function renderCustomEditor() {
   uniformHint.textContent=uniform.checked?'Resize '+leader.options[leader.selectedIndex].text+' to resize every slot. Slots can still be moved independently.':'';
   const countPills=document.getElementById('slot-count-pills'); countPills.innerHTML='';
   ECO_SLOT_COUNTS.forEach(count => {
-    const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill'; pill.textContent=count+' slot'+(count===1?'':'s');
+    const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill'; pill.textContent=count+' '+(count===1?'Slot':'Slots');
     const active=layoutDraft.windows.length===count; pill.classList.toggle('selected',active); pill.setAttribute('role','radio'); pill.setAttribute('aria-checked',active);
     pill.onclick=()=>setSlotCount(count); countPills.appendChild(pill);
   });
@@ -1029,8 +1034,8 @@ function startSlotDrag(event, index, mode) {
   window.addEventListener('pointermove',move); window.addEventListener('pointerup',end);
 }
 function renderBasePills() {
-  const base=document.getElementById('eco-base'); base.innerHTML='';
-  const add=(layout, disabled=false) => {
+  const builtins=document.getElementById('eco-builtins'), customs=document.getElementById('eco-customs'); builtins.innerHTML=''; customs.innerHTML='';
+  const add=(base, layout, disabled=false) => {
     const ident=layout.id, label=layout.name;
     const choice=document.createElement('div'); choice.className='layout-choice';
     const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill'; pill.textContent=label.length>50?label.slice(0,50)+'…':label; pill.title=label; pill.disabled=disabled;
@@ -1040,23 +1045,26 @@ function renderBasePills() {
       if (ident==='create') { editingLayout=true; editingLayoutId=null; layoutDraft={base:'',background_type:'image',background_color:'#000000',windows:[]}; uniformSlots=false; uniformLeader=0; layoutDraftDirty=false; renderAll(); }
       else selectLayout(ident);
     };
+    if (!disabled && ident !== 'create' && ecoConfig.layout_id===ident) {
+      const live=document.createElement('span'); live.className='layout-live-dot'; live.title='Currently on display'; live.setAttribute('aria-label','Currently on display'); choice.appendChild(live);
+    }
     choice.appendChild(pill);
     if (!disabled && ident !== 'create') {
-      const preview=document.createElement('button'); preview.type='button'; preview.className='layout-icon'; preview.textContent='◉'; preview.title='Preview '+label; preview.setAttribute('aria-label',preview.title);
+      const preview=document.createElement('button'); preview.type='button'; preview.className='layout-icon'; preview.textContent='👁'; preview.title='Preview '+label; preview.setAttribute('aria-label',preview.title);
       preview.onclick=e=>{e.stopPropagation(); previewLayout(layout);}; choice.appendChild(preview);
       if (ident.startsWith('custom-')) {
         const edit=document.createElement('button'); edit.type='button'; edit.className='layout-icon'; edit.textContent='✎'; edit.title='Edit '+label; edit.setAttribute('aria-label',edit.title);
         edit.onclick=e=>{e.stopPropagation(); editLayout(layout);}; choice.appendChild(edit);
       }
-      if (ecoConfig.layout_id===ident) {
-        const live=document.createElement('span'); live.className='layout-live-badge'; live.textContent='On display'; choice.appendChild(live);
-      }
     }
     base.appendChild(choice);
   };
-  (ecoConfig.layouts || []).forEach(layout=>add(layout));
-  ['Neo Geo six-slot','Neo Geo four-slot','Neo Geo two-slot'].forEach(name=>add({id:'coming-'+name,name:name+' · coming soon'},true));
-  add({id:'create',name:'+ Create custom layout'});
+  const liveFirst=items=>items.slice().sort((a,b)=>(b.id===ecoConfig.layout_id)-(a.id===ecoConfig.layout_id));
+  const layouts=ecoConfig.layouts || [];
+  liveFirst(layouts.filter(layout=>layout.base_source==='builtin')).forEach(layout=>add(builtins,layout));
+  ['Neo Geo 6 Slot','Neo Geo 4 Slot','Neo Geo 2 Slot'].forEach(name=>add(builtins,{id:'coming-'+name,name:name+' · coming soon'},true));
+  liveFirst(layouts.filter(layout=>layout.base_source!=='builtin')).forEach(layout=>add(customs,layout));
+  add(customs,{id:'create',name:'+ Create custom layout'});
 }
 async function uploadCustomBase() {
   const file=document.getElementById('custom-file').files[0]; if (!file) { alert('Choose a PNG or JPEG background first.'); return; }
@@ -1257,10 +1265,9 @@ function renderAll() {
   renderBasePills(); renderCustomEditor(); renderLivePreview();
   const assignments=document.getElementById('eco-assignment-section'); assignments.classList.toggle('hidden',editingLayout);
   if (!editingLayout) {
-    const layout=selectedLayout(), live=(ecoConfig.layouts||[]).find(l=>l.id===ecoConfig.layout_id);
+    const layout=selectedLayout();
     document.getElementById('eco-assignment-hint').textContent='Assign marquee art to “'+(layout?layout.name:'this layout')+'”. NeoSD Pro is the special live card.';
     document.getElementById('layout-delete').classList.toggle('hidden',!layout || !layout.id.startsWith('custom-')); renderCards();
-    const state=document.getElementById('layout-live-state'); state.textContent='Currently on display: '+(live?live.name:'Electrocoin four-slot')+'.';
     const send=document.getElementById('layout-send'), isLive=layout && layout.id===ecoConfig.layout_id;
     send.disabled=!layout || isLive; send.textContent=isLive?'Currently on display':'Send to display';
   }

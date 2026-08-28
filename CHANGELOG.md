@@ -3,6 +3,15 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.19 — Layout library refinement
+
+- Grouped provided cabinet designs under **Built-in templates** and saved
+  designs under **Your layouts**.
+- Standardised built-in names to the `Cabinet 4 Slot` / `Neo Geo 1 Slot`
+  style and capitalised custom-editor slot counts.
+- Replaced repeated “On display” text with a compact green dot beside the
+  active layout, and changed the preview control to an eye icon.
+
 ## v1.3.4-electrocoin.18 — Gemini generation feedback
 
 - Added progress feedback for slower Gemini image models and a three-minute
