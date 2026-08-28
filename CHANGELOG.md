@@ -3,6 +3,19 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.7 — Safe display switching and colour layouts
+
+- Separated the layout selected in Admin from the one currently on the
+  physical marquee. Selecting, editing, saving, and assigning cards are now
+  safe until **Send to display** is pressed explicitly.
+- Added clear “On display” status, a live-layout badge, and a Send to display
+  control that saves the selected layout's assignments before switching.
+- Deleting the layout currently on the marquee now asks for confirmation and
+  safely falls back to the built-in Electrocoin four-slot layout.
+- Added solid-colour backgrounds for custom layouts, including a colour picker;
+  an uploaded image is now optional.
+- Disabled unavailable Save controls instead of leaving them green.
+
 ## v1.3.4-electrocoin.6 — Editing workflow polish
 
 - Added a dedicated Rename action while editing a saved custom layout.

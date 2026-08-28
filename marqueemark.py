@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.6"
+VERSION = "1.3.4-electrocoin.7"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -130,6 +130,14 @@ def _layout_name(value):
     value = " ".join(str(value).split()) if isinstance(value, str) else ""
     return value[:48] if value else ""
 
+def _hex_colour(value):
+    value = str(value).strip().lower() if isinstance(value, str) else ""
+    return value if len(value) == 7 and value.startswith("#") and all(c in "0123456789abcdef" for c in value[1:]) else ""
+
+def _colour_rgb(value):
+    value = _hex_colour(value) or "#000000"
+    return tuple(int(value[i:i+2], 16) for i in (1, 3, 5))
+
 def _cards(value, count):
     result, neosd_seen = [], False
     for i in range(count):
@@ -147,10 +155,13 @@ def load_custom_layouts():
     for layout in raw if isinstance(raw, list) else []:
         if not isinstance(layout, dict): continue
         ident, name, base = _safe_layout_id(layout.get("id")), _layout_name(layout.get("name")), _safe_base_name(layout.get("base"))
+        background_type = layout.get("background_type") if layout.get("background_type") in ("image", "color") else "image"
+        background_color = _hex_colour(layout.get("background_color")) or "#000000"
         windows = layout.get("windows")
         parsed = [_slot_rect(r) for r in windows] if isinstance(windows, list) and len(windows) in ELECTROCOIN_SLOT_COUNTS else []
-        if ident and ident not in seen and name and base and parsed and all(parsed):
-            result.append({"id": ident, "name": name, "base": base, "windows": parsed}); seen.add(ident)
+        if ident and ident not in seen and name and (base if background_type == "image" else True) and parsed and all(parsed):
+            result.append({"id": ident, "name": name, "base": base, "background_type": background_type,
+                           "background_color": background_color, "windows": parsed}); seen.add(ident)
     return result
 
 def save_custom_layouts(layouts):
@@ -158,7 +169,8 @@ def save_custom_layouts(layouts):
 
 def builtin_layout():
     return {"id": "electrocoin", "name": "Electrocoin four-slot", "base": ELECTROCOIN_DEFAULT["base"],
-            "base_source": "builtin", "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]]}
+            "base_source": "builtin", "background_type": "image", "background_color": "#000000",
+            "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]]}
 
 def find_layout(ident, layouts=None):
     if ident == "electrocoin": return builtin_layout()
@@ -179,18 +191,26 @@ GAME_TITLES = load_game_titles()
 
 def electro_config(raw=None):
     cfg = {"base": ELECTROCOIN_DEFAULT["base"], "cards": [dict(c) for c in ELECTROCOIN_DEFAULT["cards"]],
-           "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]], "base_source": "builtin",
-           "layout_id": "electrocoin", "assignments": {"electrocoin": [dict(c) for c in ELECTROCOIN_DEFAULT["cards"]]}}
+           "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]], "base_source": "builtin", "background_type": "image", "background_color": "#000000",
+           "layout_id": "electrocoin", "selected_layout_id": "electrocoin",
+           "assignments": {"electrocoin": [dict(c) for c in ELECTROCOIN_DEFAULT["cards"]]}}
     if isinstance(raw, dict):
         source = raw.get("base_source")
+        cfg["background_type"] = raw.get("background_type") if raw.get("background_type") in ("image", "color") else "image"
+        cfg["background_color"] = _hex_colour(raw.get("background_color")) or "#000000"
         if source == "custom":
-            name = _safe_base_name(raw.get("base"))
-            if name: cfg["base"], cfg["base_source"] = name, "custom"
+            if cfg["background_type"] == "color":
+                cfg["base"], cfg["base_source"] = "", "custom"
+            else:
+                name = _safe_base_name(raw.get("base"))
+                if name: cfg["base"], cfg["base_source"] = name, "custom"
         else:
             stem = _art_stem(raw.get("base"))
             if stem: cfg["base"] = stem + ".png"
         ident = raw.get("layout_id")
         if ident == "electrocoin" or _safe_layout_id(ident): cfg["layout_id"] = ident
+        ident = raw.get("selected_layout_id")
+        if ident == "electrocoin" or _safe_layout_id(ident): cfg["selected_layout_id"] = ident
         cards = raw.get("cards")
         if isinstance(cards, list) and len(cards) in ELECTROCOIN_SLOT_COUNTS:
             cfg["cards"] = _cards(cards, len(cards))
@@ -225,7 +245,7 @@ def load_electrocoin_config():
         while ident in used: ident, suffix = "custom-imported-%d" % suffix, suffix + 1
         layouts.append({"id": ident, "name": "Imported custom layout", "base": cfg["base"], "windows": cfg["windows"]})
         save_custom_layouts(layouts)
-        cfg["layout_id"] = ident
+        cfg["layout_id"] = cfg["selected_layout_id"] = ident
         cfg["assignments"][ident] = [dict(card) for card in cfg["cards"]]
         save_electrocoin_config(cfg)
     return cfg
@@ -247,6 +267,8 @@ def activate_layout(cfg, layout, layouts=None):
         cards = ELECTROCOIN_DEFAULT["cards"] if layout["id"] == "electrocoin" else []
     cfg["layout_id"] = layout["id"]
     cfg["base"], cfg["base_source"] = layout["base"], layout.get("base_source", "custom")
+    cfg["background_type"] = layout.get("background_type", "image")
+    cfg["background_color"] = _hex_colour(layout.get("background_color")) or "#000000"
     cfg["windows"] = [list(r) for r in layout["windows"]]
     cfg["cards"] = _cards(cards, len(cfg["windows"]))
     cfg.setdefault("assignments", {})[cfg["layout_id"]] = [dict(card) for card in cfg["cards"]]
@@ -533,6 +555,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   .btn:hover { background: #33334a; }
   .btn.primary { background: #1e5c2e; border-color: #2a7a3e; color: #fff; }
   .btn.primary:hover { background: #257038; }
+  .btn:disabled, .btn.primary:disabled { background: #2a2a3a; border-color: #3a3a4a; color: #777; cursor: not-allowed; }
   .btn.danger { background: #4a1e1e; border-color: #6a2a2a; color: #fca; }
   .btn.danger:hover { background: #5a2424; }
   .hidden { display: none !important; }
@@ -581,6 +604,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   .layout-icon { width: 27px; height: 27px; padding: 0; border: 1px solid #292f42; border-radius: 50%;
                  background: #171a26; color: #bcc4d8; cursor: pointer; font-size: .9rem; }
   .layout-icon:hover { color: #fff; border-color: #667aaf; background: #20283e; }
+  .layout-live-badge { color: #a8e9b6; font-size: .7rem; white-space: nowrap; }
   .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
                     background: rgba(0,0,0,.72); padding: 20px; }
   .modal { width: min(900px, 100%); max-height: 90vh; overflow: auto; position: relative;
@@ -615,9 +639,11 @@ ADMIN_HTML = """<!DOCTYPE html>
   <h3 class="subheading">Marquee layout</h3>
   <p class="hint">Choose a saved layout, or create a new one. Layouts contain only the background and mini-marquee positions.</p>
   <div id="eco-base" class="template-pills" role="radiogroup" aria-label="Marquee layout"></div>
+  <p id="layout-live-state" class="hint" style="margin-top:8px"></p>
   <div id="custom-editor" class="hidden">
-    <p class="hint">Upload a PNG or JPEG background, then position the mini-marquee objects over it. Slot labels are editing guides only.</p>
-    <div class="cal-row"><input id="custom-file" type="file" accept="image/png,image/jpeg"><select id="custom-fit"><option value="cover">Fill canvas (crop edges)</option><option value="contain">Fit canvas (black bars if needed)</option></select><button id="custom-upload" class="btn">Upload background</button></div>
+    <p class="hint">Choose either an image or a solid colour background, then position the mini-marquee objects over it. Slot labels are editing guides only.</p>
+    <div class="cal-row"><input id="custom-file" type="file" accept="image/png,image/jpeg"><select id="custom-fit"><option value="cover">Fill canvas (crop edges)</option><option value="contain">Fit canvas (black bars if needed)</option></select><button id="custom-upload" class="btn">Upload image</button></div>
+    <div class="cal-row" style="margin-top:10px"><label><input id="custom-solid" type="checkbox"> Use a solid colour instead</label><input id="custom-colour" type="color" value="#000000" aria-label="Background colour"></div>
     <div id="layout-canvas" aria-label="Custom marquee layout editor"></div>
     <div class="cal-actions"><span class="hint" style="margin:auto 0">Mini-marquees</span><div id="slot-count-pills" class="template-pills" role="radiogroup" aria-label="Number of mini-marquee slots"></div><button id="layout-rename" class="btn hidden">Rename</button><button id="layout-save" class="btn primary">Save layout</button><button id="layout-cancel" class="btn">Cancel</button></div>
   </div>
@@ -625,7 +651,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <h3 class="subheading">Card marquee assignment</h3>
     <p id="eco-assignment-hint" class="hint">Choose what each card window shows. NeoSD Pro is the special live card; artwork choices are labelled with game titles.</p>
     <div id="eco-cards"></div>
-    <div class="cal-actions"><button id="eco-save" class="btn primary">Save card assignments</button><button id="layout-delete" class="btn hidden">Delete this custom layout</button></div>
+    <div class="cal-actions"><button id="eco-save" class="btn primary">Save card assignments</button><button id="layout-send" class="btn primary">Send to display</button><button id="layout-delete" class="btn hidden">Delete this custom layout</button></div>
   </section>
 </section>
 
@@ -776,20 +802,32 @@ refresh();
 
 const ECO_DEFAULT_WINDOWS=[[65,48,176,230],[442,48,178,230],[752,48,174,230],[1125,48,176,230]];
 const ECO_SLOT_RATIO=176/230, ECO_SLOT_COUNTS=[1,2,4,6];
-let ecoConfig=null, ecoFiles=[], ecoTitles={}, editingLayout=false, editingLayoutId=null, layoutDraft={base:'',windows:[]}, layoutDraftDirty=false, nameModalMode='create';
+let ecoConfig=null, ecoFiles=[], ecoTitles={}, editingLayout=false, editingLayoutId=null, layoutDraft={base:'',background_type:'image',background_color:'#000000',windows:[]}, layoutDraftDirty=false, nameModalMode='create';
 const blankCard=()=>({source:'blank',art:''});
 
+function selectedLayout() {
+  return (ecoConfig.layouts||[]).find(layout=>layout.id===ecoConfig.selected_layout_id) || null;
+}
+function selectedCards() {
+  const layout=selectedLayout(); if (!layout) return [];
+  const saved=ecoConfig.assignments && ecoConfig.assignments[layout.id];
+  return saved ? saved.map(card=>({...card})) : Array.from({length:layout.windows.length},blankCard);
+}
 function pullCards() {
-  if (!ecoConfig) return;
-  ecoConfig.cards=[...document.querySelectorAll('#eco-cards .eco-card')].map(pick => {
+  const layout=selectedLayout(); if (!ecoConfig || !layout) return [];
+  const cards=[...document.querySelectorAll('#eco-cards .eco-card')].map(pick => {
     if (pick.value === '__neosd__') return {source:'neosd',art:''};
     return pick.value ? {source:'fixed',art:pick.value} : blankCard();
   });
+  ecoConfig.assignments=ecoConfig.assignments||{}; ecoConfig.assignments[layout.id]=cards;
+  if (layout.id===ecoConfig.layout_id) ecoConfig.cards=cards.map(card=>({...card}));
+  return cards;
 }
 function renderCards() {
   const host=document.getElementById('eco-cards'); host.innerHTML='';
-  if (!ecoConfig.cards.length) { host.innerHTML='<p class="hint">Choose 1, 2, 4, or 6 mini-marquees above to create card assignments.</p>'; return; }
-  ecoConfig.cards.forEach((card, i) => {
+  const cards=selectedCards();
+  if (!cards.length) { host.innerHTML='<p class="hint">Choose 1, 2, 4, or 6 mini-marquees above to create card assignments.</p>'; return; }
+  cards.forEach((card, i) => {
     const row=document.createElement('div'); row.className='cal-row'; row.innerHTML='<span class="label">Card '+(i+1)+'</span>';
     const pick=document.createElement('select'); pick.className='eco-card';
     const special=document.createElement('optgroup'); special.label='Special';
@@ -830,7 +868,11 @@ function renderCustomEditor() {
   panel.classList.toggle('hidden', !editingLayout);
   if (!editingLayout) return;
   canvas.innerHTML='';
-  canvas.style.backgroundImage=layoutDraft.base ? 'url(/base/'+encodeURIComponent(layoutDraft.base)+')' : 'none';
+  const solid=layoutDraft.background_type==='color';
+  canvas.style.backgroundImage=!solid && layoutDraft.base ? 'url(/base/'+encodeURIComponent(layoutDraft.base)+')' : 'none';
+  canvas.style.backgroundColor=solid ? layoutDraft.background_color : '#050508';
+  const solidInput=document.getElementById('custom-solid'), colourInput=document.getElementById('custom-colour');
+  solidInput.checked=solid; colourInput.value=layoutDraft.background_color || '#000000'; colourInput.disabled=!solid;
   const countPills=document.getElementById('slot-count-pills'); countPills.innerHTML='';
   ECO_SLOT_COUNTS.forEach(count => {
     const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill'; pill.textContent=count+' slot'+(count===1?'':'s');
@@ -849,7 +891,7 @@ function renderCustomEditor() {
   });
   updateEditorActions();
 }
-function draftIsValid() { return !!layoutDraft.base && ECO_SLOT_COUNTS.includes(layoutDraft.windows.length); }
+function draftIsValid() { return (layoutDraft.background_type==='color' || !!layoutDraft.base) && ECO_SLOT_COUNTS.includes(layoutDraft.windows.length); }
 function updateEditorActions() {
   const saving=document.getElementById('layout-save'), rename=document.getElementById('layout-rename'), editing=!!editingLayoutId;
   rename.classList.toggle('hidden',!editing); saving.textContent=editing?'Save changes':'Save layout';
@@ -891,9 +933,9 @@ function renderBasePills() {
     const choice=document.createElement('div'); choice.className='layout-choice';
     const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill'; pill.textContent=label.length>15?label.slice(0,15)+'…':label; pill.title=label; pill.disabled=disabled;
     pill.dataset.layoutId=ident; pill.setAttribute('role','radio');
-    const selected=!editingLayout && ecoConfig.layout_id===ident; pill.classList.toggle('selected',selected); pill.setAttribute('aria-checked',selected);
+    const selected=!editingLayout && ecoConfig.selected_layout_id===ident; pill.classList.toggle('selected',selected); pill.setAttribute('aria-checked',selected);
     if (!disabled) pill.onclick=()=>{
-      if (ident==='create') { editingLayout=true; editingLayoutId=null; layoutDraft={base:'',windows:[]}; layoutDraftDirty=false; renderAll(); }
+      if (ident==='create') { editingLayout=true; editingLayoutId=null; layoutDraft={base:'',background_type:'image',background_color:'#000000',windows:[]}; layoutDraftDirty=false; renderAll(); }
       else selectLayout(ident);
     };
     choice.appendChild(pill);
@@ -903,6 +945,9 @@ function renderBasePills() {
       if (ident !== 'electrocoin') {
         const edit=document.createElement('button'); edit.type='button'; edit.className='layout-icon'; edit.textContent='✎'; edit.title='Edit '+label; edit.setAttribute('aria-label',edit.title);
         edit.onclick=e=>{e.stopPropagation(); editLayout(layout);}; choice.appendChild(edit);
+      }
+      if (ecoConfig.layout_id===ident) {
+        const live=document.createElement('span'); live.className='layout-live-badge'; live.textContent='On display'; choice.appendChild(live);
       }
     }
     base.appendChild(choice);
@@ -917,22 +962,24 @@ async function uploadCustomBase() {
   try {
     const fit=document.getElementById('custom-fit').value;
     const r=await fetch('/base/upload?fit='+fit,{method:'POST',body:file}); if (!r.ok) throw new Error(await r.text());
-    const result=await r.json(); layoutDraft.base=result.name; layoutDraftDirty=true; renderCustomEditor();
+    const result=await r.json(); layoutDraft.base=result.name; layoutDraft.background_type='image'; layoutDraftDirty=true; renderCustomEditor();
   } catch (e) { alert('Background upload failed: '+e.message); }
   button.disabled=false; button.textContent='Upload background';
 }
 document.getElementById('custom-upload').onclick=uploadCustomBase;
+document.getElementById('custom-solid').onchange=e=>{ layoutDraft.background_type=e.target.checked?'color':'image'; layoutDraftDirty=true; renderCustomEditor(); };
+document.getElementById('custom-colour').oninput=e=>{ layoutDraft.background_color=e.target.value; layoutDraftDirty=true; renderCustomEditor(); };
 async function selectLayout(ident) {
-  pullCards(); const r=await fetch('/electrocoin/layout/select?id='+encodeURIComponent(ident),{method:'POST'});
+  const r=await fetch('/electrocoin/layout/select?id='+encodeURIComponent(ident),{method:'POST'});
   if (!r.ok) { alert('Could not select that layout.'); return; } ecoConfig=await r.json(); editingLayout=false; renderAll();
 }
 function editLayout(layout) {
   editingLayout=true; editingLayoutId=layout.id;
-  layoutDraft={base:layout.base,windows:layout.windows.map(slot=>[...slot])}; layoutDraftDirty=false; renderAll();
+  layoutDraft={base:layout.base,background_type:layout.background_type||'image',background_color:layout.background_color||'#000000',windows:layout.windows.map(slot=>[...slot])}; layoutDraftDirty=false; renderAll();
 }
 function closeNameModal() { document.getElementById('layout-name-modal').classList.add('hidden'); }
 function openNameModal(mode) {
-  if (mode==='create' && !draftIsValid()) { alert('Upload a background and choose 1, 2, 4, or 6 mini-marquees first.'); return; }
+  if (mode==='create' && !draftIsValid()) { alert('Choose an image or solid colour, and choose 1, 2, 4, or 6 mini-marquees first.'); return; }
   nameModalMode=mode;
   const layout=(ecoConfig.layouts||[]).find(l=>l.id===editingLayoutId);
   document.getElementById('layout-name-title').textContent=mode==='rename'?'Rename layout':'Name this layout';
@@ -940,7 +987,7 @@ function openNameModal(mode) {
   document.getElementById('layout-name-modal').classList.remove('hidden'); setTimeout(()=>input.focus(),0);
 }
 async function persistLayout(name) {
-  const q=new URLSearchParams({name,base:layoutDraft.base,windows:JSON.stringify(layoutDraft.windows)});
+  const q=new URLSearchParams({name,base:layoutDraft.base,background_type:layoutDraft.background_type,background_color:layoutDraft.background_color,windows:JSON.stringify(layoutDraft.windows)});
   if (editingLayoutId) q.set('id',editingLayoutId);
   const r=await fetch('/electrocoin/layout/save?'+q,{method:'POST'}); if (!r.ok) { alert(await r.text()); return; }
   ecoConfig=await r.json(); editingLayout=false; editingLayoutId=null; layoutDraftDirty=false; renderAll();
@@ -958,7 +1005,8 @@ function closePreviewModal() { document.getElementById('layout-preview-modal').c
 function previewLayout(layout) {
   document.getElementById('layout-preview-title').textContent=layout.name;
   const canvas=document.getElementById('layout-preview-canvas'); canvas.innerHTML='';
-  const path=layout.id==='electrocoin'?'/art/':'/base/'; canvas.style.backgroundImage='url('+path+encodeURIComponent(layout.base)+')';
+  const image=layout.background_type!=='color', path=layout.id==='electrocoin'?'/art/':'/base/';
+  canvas.style.backgroundImage=image?'url('+path+encodeURIComponent(layout.base)+')':'none'; canvas.style.backgroundColor=image?'#050508':(layout.background_color||'#000000');
   layout.windows.forEach((slot,index)=>{
     const guide=document.createElement('div'); guide.className='layout-slot'; guide.textContent='Slot '+(index+1);
     guide.style.left=(slot[0]/1366*100)+'%'; guide.style.top=(slot[1]/360*100)+'%'; guide.style.width=(slot[2]/1366*100)+'%'; guide.style.height=(slot[3]/360*100)+'%'; canvas.appendChild(guide);
@@ -966,9 +1014,14 @@ function previewLayout(layout) {
   document.getElementById('layout-preview-modal').classList.remove('hidden');
 }
 async function deleteActiveLayout() {
-  const layout=(ecoConfig.layouts||[]).find(l=>l.id===ecoConfig.layout_id); if (!layout || layout.id==='electrocoin') return;
-  if (!confirm('Delete “'+layout.name+'”? This removes its saved background and slot layout, but never your game artwork.')) return;
-  const r=await fetch('/electrocoin/layout/delete?id='+encodeURIComponent(layout.id),{method:'POST'}); if (!r.ok) { alert('Could not delete that layout.'); return; }
+  const layout=selectedLayout(); if (!layout || layout.id==='electrocoin') return;
+  const isLive=layout.id===ecoConfig.layout_id;
+  const message=isLive
+    ? '“'+layout.name+'” is currently on display. Delete it and switch the cabinet safely back to Electrocoin four-slot?'
+    : 'Delete “'+layout.name+'”? This removes its saved background and slot layout, but never your game artwork.';
+  if (!confirm(message)) return;
+  const q=new URLSearchParams({id:layout.id}); if (isLive) q.set('replace','electrocoin');
+  const r=await fetch('/electrocoin/layout/delete?'+q,{method:'POST'}); if (!r.ok) { alert('Could not delete that layout: '+await r.text()); return; }
   ecoConfig=await r.json(); renderAll();
 }
 document.getElementById('layout-save').onclick=()=>editingLayoutId?persistLayout((ecoConfig.layouts||[]).find(l=>l.id===editingLayoutId).name):openNameModal('create');
@@ -990,15 +1043,28 @@ function renderAll() {
   renderBasePills(); renderCustomEditor();
   const assignments=document.getElementById('eco-assignment-section'); assignments.classList.toggle('hidden',editingLayout);
   if (!editingLayout) {
-    const layout=(ecoConfig.layouts||[]).find(l=>l.id===ecoConfig.layout_id);
+    const layout=selectedLayout(), live=(ecoConfig.layouts||[]).find(l=>l.id===ecoConfig.layout_id);
     document.getElementById('eco-assignment-hint').textContent='Assign marquee art to “'+(layout?layout.name:'this layout')+'”. NeoSD Pro is the special live card.';
     document.getElementById('layout-delete').classList.toggle('hidden',!layout || layout.id==='electrocoin'); renderCards();
+    const state=document.getElementById('layout-live-state'); state.textContent='Currently on display: '+(live?live.name:'Electrocoin four-slot')+'.';
+    const send=document.getElementById('layout-send'), isLive=layout && layout.id===ecoConfig.layout_id;
+    send.disabled=!layout || isLive; send.textContent=isLive?'Currently on display':'Send to display';
   }
 }
-document.getElementById('eco-save').onclick=async()=>{
-  pullCards(); const q=new URLSearchParams();
-  ecoConfig.cards.forEach((card,i)=>q.set('card'+i,card.source==='neosd'?'__neosd__':card.source==='fixed'?card.art:''));
-  const r=await fetch('/electrocoin/config?'+q,{method:'POST'}); if (!r.ok) { alert('Could not save card assignments.'); return; } ecoConfig=await r.json(); renderAll();
+async function saveCardAssignments() {
+  const layout=selectedLayout(); if (!layout) return false;
+  const cards=pullCards(), q=new URLSearchParams({layout_id:layout.id});
+  cards.forEach((card,i)=>q.set('card'+i,card.source==='neosd'?'__neosd__':card.source==='fixed'?card.art:''));
+  const r=await fetch('/electrocoin/config?'+q,{method:'POST'}); if (!r.ok) { alert('Could not save card assignments.'); return false; }
+  ecoConfig=await r.json(); renderAll(); return true;
+}
+document.getElementById('eco-save').onclick=saveCardAssignments;
+document.getElementById('layout-send').onclick=async()=>{
+  const layout=selectedLayout(); if (!layout) return;
+  if (!await saveCardAssignments()) return;
+  const r=await fetch('/electrocoin/layout/display?id='+encodeURIComponent(layout.id),{method:'POST'});
+  if (!r.ok) { alert('Could not send this layout to the display: '+await r.text()); return; }
+  ecoConfig=await r.json(); renderAll();
 };
 loadEco();
 
@@ -1264,18 +1330,28 @@ class OverlayServer:
                 elif path == "/electrocoin/layout/save":
                     self._save_electro_layout(params)
                 elif path == "/electrocoin/layout/delete":
-                    self._delete_electro_layout(params.get("id", ""))
+                    self._delete_electro_layout(params.get("id", ""), params.get("replace", ""))
                 elif path == "/electrocoin/layout/rename":
                     self._rename_electro_layout(params.get("id", ""), params.get("name", ""))
                 elif path == "/electrocoin/layout/select":
                     self._select_electro_layout(params.get("id", ""))
+                elif path == "/electrocoin/layout/display":
+                    self._display_electro_layout(params.get("id", ""))
                 elif path == "/electrocoin/config":
                     if not server.display.electrocoin:
                         self._send(404, "text/plain", b"Electrocoin mode disabled")
                     else:
                         cfg = electro_config(server.display.electro_config)
+                        target = params.get("layout_id", cfg["selected_layout_id"])
+                        layouts = load_custom_layouts(); layout = find_layout(target, layouts)
+                        if not layout:
+                            self._send(404, "text/plain", b"layout not found")
+                            return
+                        cards = cfg.get("assignments", {}).get(target, [])
+                        cfg["assignments"][target] = _cards(cards, len(layout["windows"]))
+                        target_cards = cfg["assignments"][target]
                         neosd_seen = False
-                        for i, card in enumerate(cfg["cards"]):
+                        for i, card in enumerate(target_cards):
                             value = params.get("card" + str(i))
                             if value is not None:
                                 source = "neosd" if value == "__neosd__" else "fixed" if _art_stem(value) else "blank"
@@ -1286,9 +1362,11 @@ class OverlayServer:
                                 if "art" + str(i) in params: card["art"] = _art_stem(params["art" + str(i)])
                             if source == "neosd": source = "blank" if neosd_seen else "neosd"; neosd_seen = True
                             card["source"] = source
-                        cfg.setdefault("assignments", {})[cfg["layout_id"]] = [dict(card) for card in cfg["cards"]]
+                        cfg["assignments"][target] = [dict(card) for card in target_cards]
+                        if target == cfg["layout_id"]:
+                            cfg["cards"] = [dict(card) for card in target_cards]
                         cfg = save_electrocoin_config(cfg)
-                        CAL_QUEUE.put(("electro_config", cfg))
+                        if target == cfg["layout_id"]: CAL_QUEUE.put(("electro_config", cfg))
                         self._send(200, "application/json", json.dumps(electro_payload(cfg)).encode())
                 elif path == "/display/sleep":
                     DISPLAY_QUEUE.put(("sleep",))
@@ -1319,26 +1397,34 @@ class OverlayServer:
                     self._send(404, "text/plain", b"Digital Marquee mode disabled")
                     return
                 name, base = _layout_name(params.get("name")), _safe_base_name(params.get("base"))
+                background_type = params.get("background_type") if params.get("background_type") in ("image", "color") else "image"
+                background_color = _hex_colour(params.get("background_color")) or "#000000"
+                if background_type == "color": base = ""
                 try: windows = json.loads(params.get("windows", ""))
                 except ValueError: windows = None
                 parsed = [_slot_rect(slot) for slot in windows] if isinstance(windows, list) and len(windows) in ELECTROCOIN_SLOT_COUNTS else []
-                if not name or not base or not parsed or not all(parsed) or not os.path.isfile(os.path.join(BASE_DIR, base)):
-                    self._send(400, "text/plain", b"A name, uploaded background, and 1, 2, 4, or 6 slots are required")
+                if (not name or not parsed or not all(parsed) or
+                    (background_type == "image" and (not base or not os.path.isfile(os.path.join(BASE_DIR, base))))):
+                    self._send(400, "text/plain", b"A name, image or colour background, and 1, 2, 4, or 6 slots are required")
                     return
                 layouts = load_custom_layouts(); ident = _safe_layout_id(params.get("id", ""))
                 existing = next((i for i, layout in enumerate(layouts) if layout["id"] == ident), None)
                 old_base = layouts[existing]["base"] if existing is not None else None
                 if existing is None:
                     ident = "custom-%d" % int(time.time() * 1000)
-                    layouts.append({"id": ident, "name": name, "base": base, "windows": parsed})
+                    layouts.append({"id": ident, "name": name, "base": base, "background_type": background_type,
+                                    "background_color": background_color, "windows": parsed})
                 else:
-                    layouts[existing] = {"id": ident, "name": name, "base": base, "windows": parsed}
+                    layouts[existing] = {"id": ident, "name": name, "base": base, "background_type": background_type,
+                                         "background_color": background_color, "windows": parsed}
                 save_custom_layouts(layouts)
-                cfg = activate_layout(electro_config(server.display.electro_config), find_layout(ident, layouts))
+                cfg = electro_config(server.display.electro_config)
                 if existing is None:
-                    cfg["cards"] = _cards([], len(parsed))
-                cfg["assignments"][ident] = [dict(card) for card in cfg["cards"]]
-                cfg = save_electrocoin_config(cfg); CAL_QUEUE.put(("electro_config", cfg))
+                    cfg["assignments"][ident] = _cards([], len(parsed))
+                else:
+                    cfg["assignments"][ident] = _cards(cfg.get("assignments", {}).get(ident, []), len(parsed))
+                cfg["selected_layout_id"] = ident
+                cfg = save_electrocoin_config(cfg)
                 if old_base and old_base != base and not any(layout["base"] == old_base for layout in layouts):
                     try: os.remove(os.path.join(BASE_DIR, old_base))
                     except OSError: pass
@@ -1352,10 +1438,23 @@ class OverlayServer:
                 if not layout:
                     self._send(404, "text/plain", b"layout not found")
                     return
-                cfg = save_electrocoin_config(activate_layout(electro_config(server.display.electro_config), layout))
-                CAL_QUEUE.put(("electro_config", cfg)); self._send(200, "application/json", json.dumps(electro_payload(cfg)).encode())
+                cfg = electro_config(server.display.electro_config); cfg["selected_layout_id"] = layout["id"]
+                cfg = save_electrocoin_config(cfg); self._send(200, "application/json", json.dumps(electro_payload(cfg)).encode())
 
-            def _delete_electro_layout(self, ident):
+            def _display_electro_layout(self, ident):
+                if not server.display.electrocoin:
+                    self._send(404, "text/plain", b"Digital Marquee mode disabled")
+                    return
+                layouts = load_custom_layouts(); layout = find_layout(ident, layouts)
+                if not layout:
+                    self._send(404, "text/plain", b"layout not found")
+                    return
+                cfg = activate_layout(electro_config(server.display.electro_config), layout)
+                cfg["selected_layout_id"] = layout["id"]
+                cfg = save_electrocoin_config(cfg); CAL_QUEUE.put(("electro_config", cfg))
+                self._send(200, "application/json", json.dumps(electro_payload(cfg)).encode())
+
+            def _delete_electro_layout(self, ident, replace):
                 ident = _safe_layout_id(ident)
                 if not server.display.electrocoin or not ident:
                     self._send(400, "text/plain", b"bad layout")
@@ -1364,10 +1463,16 @@ class OverlayServer:
                 if not doomed:
                     self._send(404, "text/plain", b"layout not found")
                     return
+                if server.display.electro_config["layout_id"] == ident and replace != "electrocoin":
+                    self._send(409, "text/plain", b"layout is currently on display")
+                    return
                 layouts = [layout for layout in layouts if layout["id"] != ident]; save_custom_layouts(layouts)
                 cfg = electro_config(server.display.electro_config); cfg.get("assignments", {}).pop(ident, None)
-                if cfg["layout_id"] == ident: cfg = activate_layout(cfg, builtin_layout())
-                cfg = save_electrocoin_config(cfg); CAL_QUEUE.put(("electro_config", cfg))
+                was_displayed = cfg["layout_id"] == ident
+                if was_displayed: cfg = activate_layout(cfg, builtin_layout())
+                if cfg["selected_layout_id"] == ident: cfg["selected_layout_id"] = "electrocoin"
+                cfg = save_electrocoin_config(cfg)
+                if was_displayed: CAL_QUEUE.put(("electro_config", cfg))
                 if not any(layout["base"] == doomed["base"] for layout in layouts):
                     try: os.remove(os.path.join(BASE_DIR, doomed["base"]))
                     except OSError: pass
@@ -1642,6 +1747,7 @@ class Display:
 
     def _electro_base(self):
         cfg = self.electro_config
+        if cfg.get("background_type") == "color": return None
         directory = BASE_DIR if cfg.get("base_source") == "custom" else self.art_dir
         try: return pygame.image.load(os.path.join(directory, cfg["base"])).convert()
         except (pygame.error, OSError): return None
@@ -1649,6 +1755,7 @@ class Display:
     def _electro_surface(self):
         surf = pygame.Surface(self.phys); surf.fill(BG)
         vp = pygame.Rect(0, 0, self.phys[0], min(ELECTROCOIN_VIEWPORT_HEIGHT, self.phys[1]))
+        if self.electro_config.get("background_type") == "color": surf.fill(_colour_rgb(self.electro_config.get("background_color")), vp)
         base = self._electro_base()
         if base: surf.blit(pygame.transform.smoothscale(base, vp.size), vp)
         sx, sy = vp.w / 1366, vp.h / 360
