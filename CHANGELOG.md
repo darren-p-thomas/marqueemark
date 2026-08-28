@@ -3,6 +3,12 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.18 — Gemini generation feedback
+
+- Added progress feedback for slower Gemini image models and a three-minute
+  timeout with a clear recovery message, so a stalled browser request cannot
+  leave the generator permanently disabled.
+
 ## v1.3.4-electrocoin.17 — Layout labels and AI provider memory
 
 - Expanded layout-pill labels to 50 characters before truncation; the full

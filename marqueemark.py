@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.17"
+VERSION = "1.3.4-electrocoin.18"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -1139,8 +1139,16 @@ async function generateOpenAiImage(key, prompt, model) {
   const image=data.data && data.data[0]; if (!image || !image.b64_json) throw new Error('OpenAI returned no image data.');
   return 'data:image/png;base64,'+image.b64_json;
 }
+async function fetchWithTimeout(url, options, timeoutMs, timeoutMessage) {
+  const controller=new AbortController(), timer=window.setTimeout(()=>controller.abort(),timeoutMs);
+  try { return await fetch(url,{...options,signal:controller.signal}); }
+  catch (error) {
+    if (controller.signal.aborted) throw new Error(timeoutMessage);
+    throw error;
+  } finally { window.clearTimeout(timer); }
+}
 async function generateGeminiImage(key, prompt, model) {
-  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({model,input:[{type:'text',text:prompt}],response_format:{type:'image',mime_type:'image/jpeg',aspect_ratio:'16:9'}})});
+  const r=await fetchWithTimeout('https://generativelanguage.googleapis.com/v1beta/interactions',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({model,input:[{type:'text',text:prompt}],response_format:{type:'image',mime_type:'image/jpeg',aspect_ratio:'16:9'}})},180000,'Gemini did not respond within three minutes. Try a faster Gemini image model, then try again.');
   const data=await r.json(); if (!r.ok) throw new Error(aiError(data,r.status));
   const image=data.output_image || (data.steps||[]).flatMap(step=>step.content||[]).find(item=>item.type==='image' && item.data);
   if (!image || !image.data) throw new Error('Gemini returned no image data.');
@@ -1151,6 +1159,7 @@ async function generateAiBackground() {
   if (!key) { status.textContent='Enter your '+(provider==='openai'?'OpenAI':'Gemini')+' API key first.'; return; }
   if (!request) { status.textContent='Describe the background you want to create first.'; return; }
   rememberAiKey(); button.disabled=true; button.textContent='Generating…'; status.textContent='Generating in your browser…';
+  const slowNotice=window.setTimeout(()=>{ if (button.disabled) status.textContent='Still generating with '+model+'… this can take a couple of minutes.'; },15000);
   try {
     const dataUrl=provider==='openai' ? await generateOpenAiImage(key,marqueeAiPrompt(request),model) : await generateGeminiImage(key,marqueeAiPrompt(request),model);
     status.textContent='Normalising the generated image for the marquee…';
@@ -1159,7 +1168,7 @@ async function generateAiBackground() {
     const result=await r.json(); layoutDraft.base=result.name; layoutDraft.background_type='image'; layoutDraftDirty=true; renderCustomEditor();
     status.textContent='Generated background is ready in the editor. Position slots, then save the layout.';
   } catch (e) { status.textContent='Generation failed: '+e.message; }
-  button.disabled=false; button.textContent='Generate background';
+  finally { window.clearTimeout(slowNotice); button.disabled=false; button.textContent='Generate background'; }
 }
 document.getElementById('ai-provider').onchange=()=>{ rememberAiProvider(); restoreAiKey(); };
 document.getElementById('ai-key').oninput=e=>{ aiSessionKeys[aiProvider()]=e.target.value; };
