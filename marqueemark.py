@@ -90,7 +90,9 @@ GENERIC = "generic"  # art/generic.png — fallback marquee for the overlay
 ELECTROCOIN_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "electrocoin.json")
 ELECTROCOIN_BASE_SIZE = (1366, 360)
 ELECTROCOIN_VIEWPORT_HEIGHT = 360
-ELECTROCOIN_DEFAULT = {"base": "electrocoin-base.png", "fixed": {"1": "", "2": "", "3": ""},
+ELECTROCOIN_DEFAULT = {"base": "electrocoin-base.png",
+    "cards": [{"source": "fixed", "art": ""}, {"source": "fixed", "art": ""},
+              {"source": "fixed", "art": ""}, {"source": "neosd", "art": ""}],
     "windows": [[65, 48, 176, 230], [442, 48, 178, 230], [752, 48, 174, 230], [1125, 48, 176, 230]]}
 
 def _art_stem(value):
@@ -99,13 +101,21 @@ def _art_stem(value):
     return value if value and all(c in "abcdefghijklmnopqrstuvwxyz0123456789_-" for c in value) else ""
 
 def electro_config(raw=None):
-    cfg = {"base": ELECTROCOIN_DEFAULT["base"], "fixed": dict(ELECTROCOIN_DEFAULT["fixed"]),
+    cfg = {"base": ELECTROCOIN_DEFAULT["base"], "cards": [dict(c) for c in ELECTROCOIN_DEFAULT["cards"]],
            "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]]}
     if isinstance(raw, dict):
         stem = _art_stem(raw.get("base"))
         if stem: cfg["base"] = stem + ".png"
-        if isinstance(raw.get("fixed"), dict):
-            for key in cfg["fixed"]: cfg["fixed"][key] = _art_stem(raw["fixed"].get(key, ""))
+        cards = raw.get("cards")
+        if isinstance(cards, list) and len(cards) == 4:
+            neosd_seen = False
+            for i, card in enumerate(cards):
+                source = card.get("source") if isinstance(card, dict) else "blank"
+                source = source if source in ("fixed", "neosd", "blank") else "blank"
+                if source == "neosd": source = "blank" if neosd_seen else "neosd"; neosd_seen = True
+                cfg["cards"][i] = {"source": source, "art": _art_stem(card.get("art", "")) if isinstance(card, dict) else ""}
+        elif isinstance(raw.get("fixed"), dict):  # migrate the original POC config
+            for i, key in enumerate(("1", "2", "3")): cfg["cards"][i]["art"] = _art_stem(raw["fixed"].get(key, ""))
     return cfg
 
 def load_electrocoin_config():
@@ -444,12 +454,10 @@ ADMIN_HTML = """<!DOCTYPE html>
 
 <section id="electrocoin-section" class="hidden">
   <h2>Electrocoin four-slot layout</h2>
-  <p class="hint">Slots 1–3 are fixed real cartridges. Slot 4 follows NeoSD Pro automatically.</p>
-  <div class="cal-row"><span class="label">Slot 1</span><select id="eco-1"></select></div>
-  <div class="cal-row"><span class="label">Slot 2</span><select id="eco-2"></select></div>
-  <div class="cal-row"><span class="label">Slot 3</span><select id="eco-3"></select></div>
-  <div class="cal-row"><span class="label">Slot 4</span><span>NeoSD Pro — automatic</span></div>
-  <button id="eco-save" class="btn primary">Save fixed cartridges</button>
+  <p class="hint">Choose any uploaded PNG as the base, then assign each card as fixed art, blank, or the live NeoSD Pro card.</p>
+  <div class="cal-row"><span class="label">Base</span><select id="eco-base"></select></div>
+  <div id="eco-cards"></div>
+  <button id="eco-save" class="btn primary">Save layout</button>
 </section>
 
 <section id="sec-showing" class="hidden">
@@ -588,16 +596,21 @@ async function loadEco() {
   const r = await fetch('/electrocoin/config'); if (!r.ok) return;
   const c = await r.json(), files = await (await fetch('/list')).json();
   document.getElementById('electrocoin-section').classList.remove('hidden');
-  for (const n of ['1','2','3']) {
-    const s=document.getElementById('eco-'+n); s.innerHTML='<option value="">— empty —</option>';
-    for (const f of files) if (f !== 'electrocoin-base.png') {
-      const o=document.createElement('option'); o.value=f.replace(/\.png$/, ''); o.textContent=f;
-      o.selected=o.value === c.fixed[n]; s.appendChild(o);
-    }
-  }
+  const base=document.getElementById('eco-base'); base.innerHTML='';
+  for (const f of files) { const o=new Option(f, f, false, f === c.base); base.appendChild(o); }
+  const host=document.getElementById('eco-cards'); host.innerHTML='';
+  c.cards.forEach((card, i) => {
+    const row=document.createElement('div'); row.className='cal-row'; row.innerHTML='<span class="label">Card '+(i+1)+'</span>';
+    const type=document.createElement('select'); type.className='eco-type';
+    for (const v of ['fixed','neosd','blank']) type.add(new Option(v === 'neosd' ? 'NeoSD Pro (live)' : v, v, false, v === card.source));
+    const art=document.createElement('select'); art.className='eco-art'; art.innerHTML='<option value="">— empty —</option>';
+    for (const f of files) { const stem=f.replace(/\.png$/, ''); art.add(new Option(f, stem, false, stem === card.art)); }
+    row.append(type, art); host.appendChild(row);
+  });
 }
 document.getElementById('eco-save').onclick = () => {
-  const q=new URLSearchParams(); for (const n of ['1','2','3']) q.set('slot'+n, document.getElementById('eco-'+n).value);
+  const q=new URLSearchParams(); q.set('base', document.getElementById('eco-base').value);
+  document.querySelectorAll('#eco-cards .cal-row').forEach((row,i)=>{q.set('source'+i,row.querySelector('.eco-type').value);q.set('art'+i,row.querySelector('.eco-art').value);});
   fetch('/electrocoin/config?'+q, {method:'POST'});
 };
 loadEco();
@@ -859,8 +872,16 @@ class OverlayServer:
                         self._send(404, "text/plain", b"Electrocoin mode disabled")
                     else:
                         cfg = electro_config(server.display.electro_config)
-                        for n in ("1", "2", "3"):
-                            if "slot" + n in params: cfg["fixed"][n] = _art_stem(params["slot" + n])
+                        if "base" in params:
+                            stem = _art_stem(params["base"])
+                            if stem: cfg["base"] = stem + ".png"
+                        neosd_seen = False
+                        for i, card in enumerate(cfg["cards"]):
+                            source = params.get("source" + str(i), card["source"])
+                            source = source if source in ("fixed", "neosd", "blank") else "blank"
+                            if source == "neosd": source = "blank" if neosd_seen else "neosd"; neosd_seen = True
+                            card["source"] = source
+                            if "art" + str(i) in params: card["art"] = _art_stem(params["art" + str(i)])
                         cfg = save_electrocoin_config(cfg)
                         CAL_QUEUE.put(("electro_config", cfg))
                         self._send(200, "application/json", json.dumps(cfg).encode())
@@ -1111,12 +1132,15 @@ class Display:
         base = self._electro_art(os.path.splitext(self.electro_config["base"])[0])
         if base: surf.blit(pygame.transform.smoothscale(base, vp.size), vp)
         sx, sy = vp.w / 1366, vp.h / 360
-        stems = [self.electro_config["fixed"][str(i)] for i in (1, 2, 3)]
-        stems.append(self.electro_neosd["short"] if self.electro_neosd else "")
-        for r, stem in zip(self.electro_config["windows"], stems):
+        for r, card in zip(self.electro_config["windows"], self.electro_config["cards"]):
             target = pygame.Rect(round(r[0]*sx), round(r[1]*sy), round(r[2]*sx), round(r[3]*sy))
+            stem = self.electro_neosd["short"] if card["source"] == "neosd" and self.electro_neosd else card["art"] if card["source"] == "fixed" else ""
             art = self._electro_art(stem)
             if art: surf.blit(pygame.transform.smoothscale(art, target.size), target)
+            if card["source"] == "neosd":
+                glow = target.inflate(10, 10)
+                pygame.draw.rect(surf, (0, 220, 255), glow, 3, border_radius=4)
+                pygame.draw.rect(surf, (255, 80, 50), glow.inflate(6, 6), 1, border_radius=5)
         return surf
 
     def _show_electrocoin(self):

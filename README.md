@@ -534,12 +534,11 @@ correct an upside-down image.
 
 The optional `--electrocoin` mode is for a wide digital marquee in an
 Electrocoin four-slot cabinet. It draws a fixed base image with four portrait
-windows: three manually selected real cartridges and a fourth window that
-follows the NeoSD Pro automatically.
+ windows. The admin page lets you choose any uploaded base image and assign
+ each card as fixed art, blank, or the live NeoSD Pro card (one card only).
 
 Upload a base image named `electrocoin-base.png` through the normal art manager,
-then start MarqueeMark with `--electrocoin`. The admin page gains three dropdowns
-for assigning the fixed cartridge artwork. The first proof-of-concept layout
+then start MarqueeMark with `--electrocoin`. The first proof-of-concept layout
 expects a 1366 x 360 base image and uses the upper 360 rows of the HDMI output.
 The saved choices live in `/opt/marqueemark/electrocoin.json`.
 
