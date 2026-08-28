@@ -3,6 +3,15 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.6 — Editing workflow polish
+
+- Added a dedicated Rename action while editing a saved custom layout.
+- Save changes now updates geometry/background directly and stays disabled
+  until the layout has actually changed; it no longer opens the name dialog.
+- Fixed URL decoding so layout names with spaces no longer display `+`.
+- Truncated long layout pill labels after 15 characters while preserving the
+  full name in the hover tooltip.
+
 ## v1.3.4-electrocoin.5 — Layout preview and editing
 
 - Moved custom-layout naming into a Save dialog instead of showing a name

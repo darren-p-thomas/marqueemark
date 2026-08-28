@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.5"
+VERSION = "1.3.4-electrocoin.6"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -619,7 +619,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <p class="hint">Upload a PNG or JPEG background, then position the mini-marquee objects over it. Slot labels are editing guides only.</p>
     <div class="cal-row"><input id="custom-file" type="file" accept="image/png,image/jpeg"><select id="custom-fit"><option value="cover">Fill canvas (crop edges)</option><option value="contain">Fit canvas (black bars if needed)</option></select><button id="custom-upload" class="btn">Upload background</button></div>
     <div id="layout-canvas" aria-label="Custom marquee layout editor"></div>
-    <div class="cal-actions"><span class="hint" style="margin:auto 0">Mini-marquees</span><div id="slot-count-pills" class="template-pills" role="radiogroup" aria-label="Number of mini-marquee slots"></div><button id="layout-save" class="btn primary">Save layout</button><button id="layout-cancel" class="btn">Cancel</button></div>
+    <div class="cal-actions"><span class="hint" style="margin:auto 0">Mini-marquees</span><div id="slot-count-pills" class="template-pills" role="radiogroup" aria-label="Number of mini-marquee slots"></div><button id="layout-rename" class="btn hidden">Rename</button><button id="layout-save" class="btn primary">Save layout</button><button id="layout-cancel" class="btn">Cancel</button></div>
   </div>
   <section id="eco-assignment-section">
     <h3 class="subheading">Card marquee assignment</h3>
@@ -776,7 +776,7 @@ refresh();
 
 const ECO_DEFAULT_WINDOWS=[[65,48,176,230],[442,48,178,230],[752,48,174,230],[1125,48,176,230]];
 const ECO_SLOT_RATIO=176/230, ECO_SLOT_COUNTS=[1,2,4,6];
-let ecoConfig=null, ecoFiles=[], ecoTitles={}, editingLayout=false, editingLayoutId=null, layoutDraft={base:'',windows:[]};
+let ecoConfig=null, ecoFiles=[], ecoTitles={}, editingLayout=false, editingLayoutId=null, layoutDraft={base:'',windows:[]}, layoutDraftDirty=false, nameModalMode='create';
 const blankCard=()=>({source:'blank',art:''});
 
 function pullCards() {
@@ -847,33 +847,41 @@ function renderCustomEditor() {
     el.append(handle); el.onpointerdown=e=>{ if (e.target===el) startSlotDrag(e,index,'move'); };
     canvas.appendChild(el);
   });
+  updateEditorActions();
+}
+function draftIsValid() { return !!layoutDraft.base && ECO_SLOT_COUNTS.includes(layoutDraft.windows.length); }
+function updateEditorActions() {
+  const saving=document.getElementById('layout-save'), rename=document.getElementById('layout-rename'), editing=!!editingLayoutId;
+  rename.classList.toggle('hidden',!editing); saving.textContent=editing?'Save changes':'Save layout';
+  saving.disabled=editing ? !layoutDraftDirty : !draftIsValid();
 }
 function defaultSlots(count) {
   const h=count>=6?190:count>=4?220:230, w=Math.round(h*ECO_SLOT_RATIO), gap=(1366-count*w)/(count+1), y=Math.round((360-h)/2);
   return Array.from({length:count},(_,i)=>[Math.round(gap+(w+gap)*i),y,w,h]);
 }
 function setSlotCount(count) {
+  if (layoutDraft.windows.length===count) return;
   const oldWindows=layoutDraft.windows, defaults=defaultSlots(count);
   layoutDraft.windows=defaults.map((slot,i)=>oldWindows[i] || slot);
-  renderCustomEditor();
+  layoutDraftDirty=true; renderCustomEditor();
 }
 function startSlotDrag(event, index, mode) {
   event.preventDefault(); event.stopPropagation();
-  const canvas=document.getElementById('layout-canvas'), bounds=canvas.getBoundingClientRect(), start=[...layoutDraft.windows[index]], x0=event.clientX, y0=event.clientY;
+  const canvas=document.getElementById('layout-canvas'), bounds=canvas.getBoundingClientRect(), start=[...layoutDraft.windows[index]], x0=event.clientX, y0=event.clientY; let moved=false;
   const slotElement=canvas.children[index];
   const move=e=>{
     const dx=(e.clientX-x0)*1366/bounds.width, dy=(e.clientY-y0)*360/bounds.height;
     let [x,y,w,h]=start;
     if (mode === 'move') { x=Math.max(0,Math.min(1366-w,Math.round(x+dx))); y=Math.max(0,Math.min(360-h,Math.round(y+dy))); }
     else { w=Math.max(60,Math.min(1366-x,(360-y)*ECO_SLOT_RATIO,Math.round(w+dx))); h=Math.round(w/ECO_SLOT_RATIO); }
-    layoutDraft.windows[index]=[x,y,w,h];
+    moved = moved || x!==start[0] || y!==start[1] || w!==start[2] || h!==start[3]; layoutDraft.windows[index]=[x,y,w,h];
     // Move the existing overlay rather than rebuilding the canvas. Rebuilding
     // changes the background-image URL on every pointer event, which causes
     // a visible black flash while a browser repaints the image.
     slotElement.style.left=(x/1366*100)+'%'; slotElement.style.top=(y/360*100)+'%';
     slotElement.style.width=(w/1366*100)+'%'; slotElement.style.height=(h/360*100)+'%';
   };
-  const end=()=>{ window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',end); };
+  const end=()=>{ if (moved) layoutDraftDirty=true; updateEditorActions(); window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',end); };
   window.addEventListener('pointermove',move); window.addEventListener('pointerup',end);
 }
 function renderBasePills() {
@@ -881,11 +889,11 @@ function renderBasePills() {
   const add=(layout, disabled=false) => {
     const ident=layout.id, label=layout.name;
     const choice=document.createElement('div'); choice.className='layout-choice';
-    const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill'; pill.textContent=label; pill.disabled=disabled;
+    const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill'; pill.textContent=label.length>15?label.slice(0,15)+'…':label; pill.title=label; pill.disabled=disabled;
     pill.dataset.layoutId=ident; pill.setAttribute('role','radio');
     const selected=!editingLayout && ecoConfig.layout_id===ident; pill.classList.toggle('selected',selected); pill.setAttribute('aria-checked',selected);
     if (!disabled) pill.onclick=()=>{
-      if (ident==='create') { editingLayout=true; editingLayoutId=null; layoutDraft={base:'',windows:[]}; renderAll(); }
+      if (ident==='create') { editingLayout=true; editingLayoutId=null; layoutDraft={base:'',windows:[]}; layoutDraftDirty=false; renderAll(); }
       else selectLayout(ident);
     };
     choice.appendChild(pill);
@@ -909,7 +917,7 @@ async function uploadCustomBase() {
   try {
     const fit=document.getElementById('custom-fit').value;
     const r=await fetch('/base/upload?fit='+fit,{method:'POST',body:file}); if (!r.ok) throw new Error(await r.text());
-    const result=await r.json(); layoutDraft.base=result.name; renderCustomEditor();
+    const result=await r.json(); layoutDraft.base=result.name; layoutDraftDirty=true; renderCustomEditor();
   } catch (e) { alert('Background upload failed: '+e.message); }
   button.disabled=false; button.textContent='Upload background';
 }
@@ -920,23 +928,31 @@ async function selectLayout(ident) {
 }
 function editLayout(layout) {
   editingLayout=true; editingLayoutId=layout.id;
-  layoutDraft={base:layout.base,windows:layout.windows.map(slot=>[...slot])}; renderAll();
+  layoutDraft={base:layout.base,windows:layout.windows.map(slot=>[...slot])}; layoutDraftDirty=false; renderAll();
 }
 function closeNameModal() { document.getElementById('layout-name-modal').classList.add('hidden'); }
-function openNameModal() {
-  if (!layoutDraft.base || !ECO_SLOT_COUNTS.includes(layoutDraft.windows.length)) { alert('Upload a background and choose 1, 2, 4, or 6 mini-marquees first.'); return; }
+function openNameModal(mode) {
+  if (mode==='create' && !draftIsValid()) { alert('Upload a background and choose 1, 2, 4, or 6 mini-marquees first.'); return; }
+  nameModalMode=mode;
   const layout=(ecoConfig.layouts||[]).find(l=>l.id===editingLayoutId);
-  document.getElementById('layout-name-title').textContent=layout?'Rename layout':'Name this layout';
+  document.getElementById('layout-name-title').textContent=mode==='rename'?'Rename layout':'Name this layout';
   const input=document.getElementById('layout-name-input'); input.value=layout?layout.name:'';
   document.getElementById('layout-name-modal').classList.remove('hidden'); setTimeout(()=>input.focus(),0);
 }
-async function saveNewLayout() {
-  const name=document.getElementById('layout-name-input').value.trim();
-  if (!name || !layoutDraft.base || !ECO_SLOT_COUNTS.includes(layoutDraft.windows.length)) { alert('Enter a name, upload a background, and choose 1, 2, 4, or 6 mini-marquees.'); return; }
+async function persistLayout(name) {
   const q=new URLSearchParams({name,base:layoutDraft.base,windows:JSON.stringify(layoutDraft.windows)});
   if (editingLayoutId) q.set('id',editingLayoutId);
   const r=await fetch('/electrocoin/layout/save?'+q,{method:'POST'}); if (!r.ok) { alert(await r.text()); return; }
-  ecoConfig=await r.json(); editingLayout=false; editingLayoutId=null; closeNameModal(); renderAll();
+  ecoConfig=await r.json(); editingLayout=false; editingLayoutId=null; layoutDraftDirty=false; renderAll();
+}
+async function confirmLayoutName() {
+  const name=document.getElementById('layout-name-input').value.trim();
+  if (!name) { alert('Enter a layout name.'); return; }
+  if (nameModalMode==='rename') {
+    const r=await fetch('/electrocoin/layout/rename?'+new URLSearchParams({id:editingLayoutId,name}),{method:'POST'});
+    if (!r.ok) { alert(await r.text()); return; } ecoConfig=await r.json(); closeNameModal(); renderAll(); return;
+  }
+  closeNameModal(); await persistLayout(name);
 }
 function closePreviewModal() { document.getElementById('layout-preview-modal').classList.add('hidden'); }
 function previewLayout(layout) {
@@ -955,10 +971,11 @@ async function deleteActiveLayout() {
   const r=await fetch('/electrocoin/layout/delete?id='+encodeURIComponent(layout.id),{method:'POST'}); if (!r.ok) { alert('Could not delete that layout.'); return; }
   ecoConfig=await r.json(); renderAll();
 }
-document.getElementById('layout-save').onclick=openNameModal;
-document.getElementById('layout-cancel').onclick=()=>{editingLayout=false; editingLayoutId=null; renderAll();};
+document.getElementById('layout-save').onclick=()=>editingLayoutId?persistLayout((ecoConfig.layouts||[]).find(l=>l.id===editingLayoutId).name):openNameModal('create');
+document.getElementById('layout-rename').onclick=()=>openNameModal('rename');
+document.getElementById('layout-cancel').onclick=()=>{editingLayout=false; editingLayoutId=null; layoutDraftDirty=false; renderAll();};
 document.getElementById('layout-delete').onclick=deleteActiveLayout;
-document.getElementById('layout-name-confirm').onclick=saveNewLayout;
+document.getElementById('layout-name-confirm').onclick=confirmLayoutName;
 document.getElementById('layout-name-cancel').onclick=closeNameModal;
 document.getElementById('layout-name-close').onclick=closeNameModal;
 document.getElementById('layout-preview-close').onclick=closePreviewModal;
@@ -1234,8 +1251,8 @@ class OverlayServer:
                 for pair in query.split("&"):
                     if "=" in pair:
                         k, _, v = pair.partition("=")
-                        from urllib.parse import unquote
-                        params[k] = unquote(v)
+                        from urllib.parse import unquote_plus
+                        params[k] = unquote_plus(v)
                 if path == "/upload":
                     self._handle_upload(params.get("name", ""))
                 elif path == "/delete":
@@ -1248,6 +1265,8 @@ class OverlayServer:
                     self._save_electro_layout(params)
                 elif path == "/electrocoin/layout/delete":
                     self._delete_electro_layout(params.get("id", ""))
+                elif path == "/electrocoin/layout/rename":
+                    self._rename_electro_layout(params.get("id", ""), params.get("name", ""))
                 elif path == "/electrocoin/layout/select":
                     self._select_electro_layout(params.get("id", ""))
                 elif path == "/electrocoin/config":
@@ -1353,6 +1372,18 @@ class OverlayServer:
                     try: os.remove(os.path.join(BASE_DIR, doomed["base"]))
                     except OSError: pass
                 self._send(200, "application/json", json.dumps(electro_payload(cfg)).encode())
+
+            def _rename_electro_layout(self, ident, name):
+                ident, name = _safe_layout_id(ident), _layout_name(name)
+                if not server.display.electrocoin or not ident or not name:
+                    self._send(400, "text/plain", b"bad layout name")
+                    return
+                layouts = load_custom_layouts(); layout = next((item for item in layouts if item["id"] == ident), None)
+                if not layout:
+                    self._send(404, "text/plain", b"layout not found")
+                    return
+                layout["name"] = name; save_custom_layouts(layouts)
+                self._send(200, "application/json", json.dumps(electro_payload(server.display.electro_config)).encode())
 
             def _handle_calibrate(self, action, params):
                 # All of these just enqueue a command for the main thread
