@@ -104,6 +104,10 @@ The generation workflow is independently implemented and was inspired by
 Use **Validate key** before generating to load the image models currently
 available to that provider key, then choose the desired model from the list.
 
+When placing slots, **Keep all slots the same size** lets the user choose one
+reference slot. Its resize handle updates every slot's dimensions together,
+while their positions remain independently adjustable.
+
 ## How it works
 
 The NeoSD Pro's USB port appears as a standard serial device

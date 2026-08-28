@@ -3,6 +3,14 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.11 — Uniform slot sizing
+
+- Added **Keep all slots the same size** in the custom-layout editor.
+- Choose a reference slot; enabling the option immediately matches every
+  slot's dimensions to it while preserving each slot's position.
+- While enabled, only the reference slot resizes all slots together; every
+  slot remains independently movable.
+
 ## v1.3.4-electrocoin.10 — Live preview, model choice, assignment fix
 
 - Fixed card assignments for an inactive selected layout being lost on the

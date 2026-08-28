@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.10"
+VERSION = "1.3.4-electrocoin.11"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -664,7 +664,10 @@ ADMIN_HTML = """<!DOCTYPE html>
       <div class="cal-actions" style="margin-top:10px"><button id="ai-generate" class="btn">Generate background</button></div><p id="ai-status"></p>
     </details>
     <div id="layout-canvas" aria-label="Custom marquee layout editor"></div>
-    <div class="cal-actions"><span class="hint" style="margin:auto 0">Mini-marquees</span><div id="slot-count-pills" class="template-pills" role="radiogroup" aria-label="Number of mini-marquee slots"></div><button id="layout-rename" class="btn hidden">Rename</button><button id="layout-save" class="btn primary">Save layout</button><button id="layout-cancel" class="btn">Cancel</button></div>
+    <div class="cal-actions"><span class="hint" style="margin:auto 0">Mini-marquees</span><div id="slot-count-pills" class="template-pills" role="radiogroup" aria-label="Number of mini-marquee slots"></div></div>
+    <div class="cal-row" style="margin-top:10px"><label><input id="uniform-slots" type="checkbox"> Keep all slots the same size</label><label id="uniform-leader-wrap" class="hidden">Follow size of <select id="uniform-leader"></select></label></div>
+    <p id="uniform-slots-hint" class="hint" style="margin:8px 0 0"></p>
+    <div class="cal-actions"><button id="layout-rename" class="btn hidden">Rename</button><button id="layout-save" class="btn primary">Save layout</button><button id="layout-cancel" class="btn">Cancel</button></div>
   </div>
   <section id="eco-assignment-section">
     <h3 class="subheading">Card marquee assignment</h3>
@@ -821,7 +824,7 @@ refresh();
 
 const ECO_DEFAULT_WINDOWS=[[65,48,176,230],[442,48,178,230],[752,48,174,230],[1125,48,176,230]];
 const ECO_SLOT_RATIO=176/230, ECO_SLOT_COUNTS=[1,2,4,6];
-let ecoConfig=null, ecoFiles=[], ecoTitles={}, editingLayout=false, editingLayoutId=null, layoutDraft={base:'',background_type:'image',background_color:'#000000',windows:[]}, layoutDraftDirty=false, nameModalMode='create';
+let ecoConfig=null, ecoFiles=[], ecoTitles={}, editingLayout=false, editingLayoutId=null, layoutDraft={base:'',background_type:'image',background_color:'#000000',windows:[]}, layoutDraftDirty=false, nameModalMode='create', uniformSlots=false, uniformLeader=0;
 let ecoLiveShort=null, ecoLiveEvents=null;
 const blankCard=()=>({source:'blank',art:''});
 
@@ -913,6 +916,12 @@ function renderCustomEditor() {
   canvas.style.backgroundColor=solid ? layoutDraft.background_color : '#050508';
   const solidInput=document.getElementById('custom-solid'), colourInput=document.getElementById('custom-colour');
   solidInput.checked=solid; colourInput.value=layoutDraft.background_color || '#000000'; colourInput.disabled=!solid;
+  const uniform=document.getElementById('uniform-slots'), leaderWrap=document.getElementById('uniform-leader-wrap'), leader=document.getElementById('uniform-leader'), uniformHint=document.getElementById('uniform-slots-hint');
+  uniform.disabled=layoutDraft.windows.length<2; uniform.checked=uniformSlots && layoutDraft.windows.length>1;
+  leaderWrap.classList.toggle('hidden',!uniform.checked); leader.innerHTML='';
+  if (uniformLeader>=layoutDraft.windows.length) uniformLeader=0;
+  layoutDraft.windows.forEach((_,index)=>leader.append(new Option('Slot '+(index+1),String(index),false,index===uniformLeader)));
+  uniformHint.textContent=uniform.checked?'Resize '+leader.options[leader.selectedIndex].text+' to resize every slot. Slots can still be moved independently.':'';
   const countPills=document.getElementById('slot-count-pills'); countPills.innerHTML='';
   ECO_SLOT_COUNTS.forEach(count => {
     const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill'; pill.textContent=count+' slot'+(count===1?'':'s');
@@ -924,9 +933,11 @@ function renderCustomEditor() {
     el.style.left=(slot[0]/1366*100)+'%'; el.style.top=(slot[1]/360*100)+'%';
     el.style.width=(slot[2]/1366*100)+'%'; el.style.height=(slot[3]/360*100)+'%';
     el.textContent='Slot '+(index+1);
-    const handle=document.createElement('span'); handle.className='slot-resize'; handle.title='Resize slot';
-    handle.onpointerdown=e=>startSlotDrag(e,index,'resize');
-    el.append(handle); el.onpointerdown=e=>{ if (e.target===el) startSlotDrag(e,index,'move'); };
+    if (!uniform.checked || index===uniformLeader) {
+      const handle=document.createElement('span'); handle.className='slot-resize'; handle.title='Resize slot';
+      handle.onpointerdown=e=>startSlotDrag(e,index,'resize'); el.append(handle);
+    }
+    el.onpointerdown=e=>{ if (e.target===el) startSlotDrag(e,index,'move'); };
     canvas.appendChild(el);
   });
   updateEditorActions();
@@ -945,7 +956,20 @@ function setSlotCount(count) {
   if (layoutDraft.windows.length===count) return;
   const oldWindows=layoutDraft.windows, defaults=defaultSlots(count);
   layoutDraft.windows=defaults.map((slot,i)=>oldWindows[i] || slot);
+  if (uniformLeader>=count) uniformLeader=0;
+  if (uniformSlots && count>1) applyUniformSize();
   layoutDraftDirty=true; renderCustomEditor();
+}
+function clampSlotSize(slot,w,h) {
+  return [Math.max(0,Math.min(1366-w,slot[0])),Math.max(0,Math.min(360-h,slot[1])),w,h];
+}
+function applyUniformSize() {
+  const lead=layoutDraft.windows[uniformLeader]; if (!lead) return;
+  layoutDraft.windows=layoutDraft.windows.map(slot=>clampSlotSize(slot,lead[2],lead[3]));
+}
+function placeSlotElement(el, slot) {
+  el.style.left=(slot[0]/1366*100)+'%'; el.style.top=(slot[1]/360*100)+'%';
+  el.style.width=(slot[2]/1366*100)+'%'; el.style.height=(slot[3]/360*100)+'%';
 }
 function startSlotDrag(event, index, mode) {
   event.preventDefault(); event.stopPropagation();
@@ -957,11 +981,12 @@ function startSlotDrag(event, index, mode) {
     if (mode === 'move') { x=Math.max(0,Math.min(1366-w,Math.round(x+dx))); y=Math.max(0,Math.min(360-h,Math.round(y+dy))); }
     else { w=Math.max(60,Math.min(1366-x,(360-y)*ECO_SLOT_RATIO,Math.round(w+dx))); h=Math.round(w/ECO_SLOT_RATIO); }
     moved = moved || x!==start[0] || y!==start[1] || w!==start[2] || h!==start[3]; layoutDraft.windows[index]=[x,y,w,h];
+    if (mode==='resize' && uniformSlots) applyUniformSize();
     // Move the existing overlay rather than rebuilding the canvas. Rebuilding
     // changes the background-image URL on every pointer event, which causes
     // a visible black flash while a browser repaints the image.
-    slotElement.style.left=(x/1366*100)+'%'; slotElement.style.top=(y/360*100)+'%';
-    slotElement.style.width=(w/1366*100)+'%'; slotElement.style.height=(h/360*100)+'%';
+    if (mode==='resize' && uniformSlots) [...canvas.children].forEach((el,i)=>placeSlotElement(el,layoutDraft.windows[i]));
+    else placeSlotElement(slotElement,layoutDraft.windows[index]);
   };
   const end=()=>{ if (moved) layoutDraftDirty=true; updateEditorActions(); window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',end); };
   window.addEventListener('pointermove',move); window.addEventListener('pointerup',end);
@@ -975,7 +1000,7 @@ function renderBasePills() {
     pill.dataset.layoutId=ident; pill.setAttribute('role','radio');
     const selected=!editingLayout && ecoConfig.selected_layout_id===ident; pill.classList.toggle('selected',selected); pill.setAttribute('aria-checked',selected);
     if (!disabled) pill.onclick=()=>{
-      if (ident==='create') { editingLayout=true; editingLayoutId=null; layoutDraft={base:'',background_type:'image',background_color:'#000000',windows:[]}; layoutDraftDirty=false; renderAll(); }
+      if (ident==='create') { editingLayout=true; editingLayoutId=null; layoutDraft={base:'',background_type:'image',background_color:'#000000',windows:[]}; uniformSlots=false; uniformLeader=0; layoutDraftDirty=false; renderAll(); }
       else selectLayout(ident);
     };
     choice.appendChild(pill);
@@ -1009,6 +1034,8 @@ async function uploadCustomBase() {
 document.getElementById('custom-upload').onclick=uploadCustomBase;
 document.getElementById('custom-solid').onchange=e=>{ layoutDraft.background_type=e.target.checked?'color':'image'; layoutDraftDirty=true; renderCustomEditor(); };
 document.getElementById('custom-colour').oninput=e=>{ layoutDraft.background_color=e.target.value; layoutDraftDirty=true; renderCustomEditor(); };
+document.getElementById('uniform-slots').onchange=e=>{ uniformSlots=e.target.checked; if (uniformSlots) applyUniformSize(); layoutDraftDirty=true; renderCustomEditor(); };
+document.getElementById('uniform-leader').onchange=e=>{ uniformLeader=Number(e.target.value)||0; applyUniformSize(); layoutDraftDirty=true; renderCustomEditor(); };
 
 // Bring-your-own-key image generation. The Pi only receives the resulting
 // image through /base/upload; keys remain in this browser (session memory by
@@ -1107,7 +1134,7 @@ async function selectLayout(ident) {
 }
 function editLayout(layout) {
   editingLayout=true; editingLayoutId=layout.id;
-  layoutDraft={base:layout.base,background_type:layout.background_type||'image',background_color:layout.background_color||'#000000',windows:layout.windows.map(slot=>[...slot])}; layoutDraftDirty=false; renderAll();
+  layoutDraft={base:layout.base,background_type:layout.background_type||'image',background_color:layout.background_color||'#000000',windows:layout.windows.map(slot=>[...slot])}; uniformSlots=false; uniformLeader=0; layoutDraftDirty=false; renderAll();
 }
 function closeNameModal() { document.getElementById('layout-name-modal').classList.add('hidden'); }
 function openNameModal(mode) {
