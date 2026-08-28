@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.13"
+VERSION = "1.3.4-electrocoin.14"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61

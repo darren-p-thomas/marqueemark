@@ -3,6 +3,13 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.14 — Built-in template installer repair
+
+- Updated the installer to download missing built-in cabinet artwork on both
+  fresh installs and updates, including the Neo Geo one-slot base image.
+- Added a five-second service stop timeout to prevent stalled HDMI/SDL
+  processes from holding updates for systemd's long default timeout.
+
 ## v1.3.4-electrocoin.13 — Headless Admin mode
 
 - MarqueeMark now starts its Admin server without HDMI connected, using an

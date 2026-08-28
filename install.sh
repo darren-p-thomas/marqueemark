@@ -109,6 +109,28 @@ else
   echo "  keeping your existing art/generic.png"
 fi
 
+# Built-in cabinet layouts are application assets, not user-selected game
+# artwork. Add a newly introduced template on update if it is missing, while
+# never replacing an existing local copy (so users may still customise it).
+install_builtin_base() {
+  local asset="$1" tmp
+  if [ -f "$INSTALL_DIR/art/$asset" ]; then
+    echo "  keeping existing built-in base: $asset"
+    return
+  fi
+  tmp="$(mktemp)"
+  if curl -fsSL "$REPO_RAW/art/$asset" -o "$tmp" && [ -s "$tmp" ]; then
+    mv "$tmp" "$INSTALL_DIR/art/$asset"
+    echo "  installed built-in base: $asset"
+  else
+    rm -f "$tmp"
+    echo "  could not download built-in base: $asset"
+  fi
+}
+say "Installing built-in marquee templates"
+install_builtin_base "electrocoin-base.png"
+install_builtin_base "neogeo-one-slot.png"
+
 # ----------------------------------------------------------- permissions
 say "Granting serial and display access"
 sudo usermod -aG dialout,video,render,input "$USER_NAME"
@@ -172,6 +194,8 @@ WorkingDirectory=$INSTALL_DIR
 ExecStart=/usr/bin/python3 $INSTALL_DIR/marqueemark.py $RUN_ARGS
 Restart=always
 RestartSec=3
+TimeoutStopSec=5
+KillMode=control-group
 
 [Install]
 WantedBy=multi-user.target
