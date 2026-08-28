@@ -623,8 +623,11 @@ async function loadEco() {
     for (const f of files) {
       const stem=f.replace(/\.png$/, '');
       if (f === 'generic.png' || f === c.base) continue;
-      const friendly=titles[stem] || stem.replace(/[-_]+/g, ' ').replace(/\b\w/g, x => x.toUpperCase());
-      art.append(new Option(friendly + ' — ' + f, stem, false, card.source === 'fixed' && stem === card.art));
+      // A verified title keeps the selector clean. A literal filename is
+      // deliberately retained for unknown hacks/homebrew, so it is clear
+      // which labels still need mapping rather than silently guessing.
+      art.append(new Option(titles[stem] || f, stem, false,
+        card.source === 'fixed' && stem === card.art));
     }
     pick.appendChild(art); row.append(pick); host.appendChild(row);
   });
