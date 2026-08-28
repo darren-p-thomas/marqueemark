@@ -607,6 +607,23 @@ async function loadEco() {
     for (const f of files) { const stem=f.replace(/\.png$/, ''); art.add(new Option(f, stem, false, stem === card.art)); }
     row.append(type, art); host.appendChild(row);
   });
+  const syncCards = changed => {
+    const rows=[...document.querySelectorAll('#eco-cards .cal-row')];
+    const changedRow = changed ? changed.closest('.cal-row') : null;
+    const live = changed && changed.value === 'neosd' ? rows.indexOf(changedRow) :
+      rows.findIndex(row => row.querySelector('.eco-type').value === 'neosd');
+    rows.forEach((row, i) => {
+      const type=row.querySelector('.eco-type'), art=row.querySelector('.eco-art');
+      if (type.value === 'neosd' && i !== live) type.value='blank';
+      art.disabled = type.value !== 'fixed';
+      art.style.visibility = type.value === 'fixed' ? 'visible' : 'hidden';
+      [...type.options].forEach(option => option.disabled =
+        option.value === 'neosd' && live !== -1 && i !== live);
+    });
+  };
+  [...document.querySelectorAll('.eco-type')].forEach(type =>
+    type.onchange = () => syncCards(type));
+  syncCards();
 }
 document.getElementById('eco-save').onclick = () => {
   const q=new URLSearchParams(); q.set('base', document.getElementById('eco-base').value);
