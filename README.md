@@ -88,6 +88,19 @@ Once a layout is selected, its separate card-assignment controls appear
 underneath. Deleting a layout that is currently on display safely returns the
 cabinet to the built-in Electrocoin layout after confirmation.
 
+### Optional AI-generated backgrounds
+
+The custom-layout editor can generate a background from a text prompt with a
+user-supplied OpenAI or Google Gemini API key. The key is sent directly from
+the user's browser to that provider; MarqueeMark and the Pi receive only the
+generated image. Keys are kept only for the current browser session unless
+the user explicitly checks **Remember this key on this device**, which stores
+it in that browser's local storage. Anyone with access to that browser profile
+can use a remembered key, so use the option only on a trusted device.
+
+The generation workflow is independently implemented and was inspired by
+[IFWG by raz0red](https://github.com/raz0red/ifwithgraphics).
+
 ## How it works
 
 The NeoSD Pro's USB port appears as a standard serial device

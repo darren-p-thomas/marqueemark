@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.7"
+VERSION = "1.3.4-electrocoin.8"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -627,6 +627,10 @@ ADMIN_HTML = """<!DOCTYPE html>
                         border: 0; border-radius: 50%; background: #b4283b; color: #fff; cursor: pointer; }
   .slot-resize { position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px;
                  background: #fff; border: 2px solid #168e9c; border-radius: 2px; cursor: nwse-resize; }
+  .ai-generator { margin-top: 12px; padding: 12px; border: 1px solid #30354b; border-radius: 8px; background: #151621; }
+  .ai-generator summary { cursor: pointer; color: #cdd7fa; font-weight: 600; }
+  .ai-generator textarea { width: min(700px,100%); min-height: 76px; box-sizing: border-box; resize: vertical; }
+  #ai-status { min-height: 1.2em; margin: 8px 0 0; color: #9ad; font-size: .82rem; }
 </style>
 </head>
 <body>
@@ -644,6 +648,13 @@ ADMIN_HTML = """<!DOCTYPE html>
     <p class="hint">Choose either an image or a solid colour background, then position the mini-marquee objects over it. Slot labels are editing guides only.</p>
     <div class="cal-row"><input id="custom-file" type="file" accept="image/png,image/jpeg"><select id="custom-fit"><option value="cover">Fill canvas (crop edges)</option><option value="contain">Fit canvas (black bars if needed)</option></select><button id="custom-upload" class="btn">Upload image</button></div>
     <div class="cal-row" style="margin-top:10px"><label><input id="custom-solid" type="checkbox"> Use a solid colour instead</label><input id="custom-colour" type="color" value="#000000" aria-label="Background colour"></div>
+    <details class="ai-generator"><summary>Generate a background with AI</summary>
+      <p class="hint" style="margin-top:10px">Your key is used directly by your browser and is never sent to this Pi. Image-generation workflow inspired by <a href="https://github.com/raz0red/ifwithgraphics" target="_blank" rel="noopener">IFWG by raz0red</a>.</p>
+      <div class="cal-row"><label class="label" for="ai-provider">Provider</label><select id="ai-provider"><option value="openai">OpenAI</option><option value="gemini">Google Gemini</option></select><input id="ai-key" type="password" autocomplete="off" placeholder="API key" aria-label="API key"></div>
+      <div class="cal-row" style="margin-top:8px"><label><input id="ai-remember" type="checkbox"> Remember this key on this device</label></div>
+      <div style="margin-top:8px"><label for="ai-prompt" class="hint" style="display:block">Describe the marquee background</label><textarea id="ai-prompt" placeholder="e.g. brushed steel Neo Geo-inspired arcade art deco background, teal and magenta circuitry, large clear space for four game cards"></textarea></div>
+      <div class="cal-actions" style="margin-top:10px"><button id="ai-generate" class="btn">Generate background</button></div><p id="ai-status"></p>
+    </details>
     <div id="layout-canvas" aria-label="Custom marquee layout editor"></div>
     <div class="cal-actions"><span class="hint" style="margin:auto 0">Mini-marquees</span><div id="slot-count-pills" class="template-pills" role="radiogroup" aria-label="Number of mini-marquee slots"></div><button id="layout-rename" class="btn hidden">Rename</button><button id="layout-save" class="btn primary">Save layout</button><button id="layout-cancel" class="btn">Cancel</button></div>
   </div>
@@ -964,11 +975,68 @@ async function uploadCustomBase() {
     const r=await fetch('/base/upload?fit='+fit,{method:'POST',body:file}); if (!r.ok) throw new Error(await r.text());
     const result=await r.json(); layoutDraft.base=result.name; layoutDraft.background_type='image'; layoutDraftDirty=true; renderCustomEditor();
   } catch (e) { alert('Background upload failed: '+e.message); }
-  button.disabled=false; button.textContent='Upload background';
+  button.disabled=false; button.textContent='Upload image';
 }
 document.getElementById('custom-upload').onclick=uploadCustomBase;
 document.getElementById('custom-solid').onchange=e=>{ layoutDraft.background_type=e.target.checked?'color':'image'; layoutDraftDirty=true; renderCustomEditor(); };
 document.getElementById('custom-colour').oninput=e=>{ layoutDraft.background_color=e.target.value; layoutDraftDirty=true; renderCustomEditor(); };
+
+// Bring-your-own-key image generation. The Pi only receives the resulting
+// image through /base/upload; keys remain in this browser (session memory by
+// default, localStorage only after the user explicitly opts in).
+const AI_SETTINGS_KEY='marqueemark-ai-settings'; let aiSessionKeys={};
+function readAiSettings() { try { return JSON.parse(localStorage.getItem(AI_SETTINGS_KEY)) || {keys:{}}; } catch (_) { return {keys:{}}; } }
+function writeAiSettings(settings) { localStorage.setItem(AI_SETTINGS_KEY,JSON.stringify(settings)); }
+function aiProvider() { return document.getElementById('ai-provider').value; }
+function restoreAiKey() {
+  const provider=aiProvider(), saved=readAiSettings().keys || {};
+  document.getElementById('ai-key').value=aiSessionKeys[provider] || saved[provider] || '';
+  document.getElementById('ai-remember').checked=!!saved[provider];
+}
+function rememberAiKey() {
+  const provider=aiProvider(), key=document.getElementById('ai-key').value.trim(), remember=document.getElementById('ai-remember').checked;
+  aiSessionKeys[provider]=key;
+  const settings=readAiSettings(); settings.keys=settings.keys || {};
+  if (remember && key) settings.keys[provider]=key; else delete settings.keys[provider];
+  writeAiSettings(settings);
+}
+function aiError(data, fallback) { return data && data.error && (data.error.message || data.error) || fallback; }
+function marqueeAiPrompt(request) {
+  return 'Create a background-only digital arcade marquee design. The final physical canvas is exactly 1366 by 360 pixels, an ultra-wide 3.794:1 landscape. Compose important artwork safely within this very wide ratio; the app will crop or fit the returned image to 1366 × 360. Leave uncluttered space for mini-marquee game cards which will be placed later. Do not include readable text, game titles, logos, slot frames, UI, controls, or characters that overlap the card areas. High-quality arcade cabinet artwork. Design request: ' + request.trim();
+}
+async function generateOpenAiImage(key, prompt) {
+  const r=await fetch('https://api.openai.com/v1/images/generations',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:'gpt-image-1',prompt,size:'1536x1024',quality:'medium',output_format:'png'})});
+  const data=await r.json(); if (!r.ok) throw new Error(aiError(data,r.status));
+  const image=data.data && data.data[0]; if (!image || !image.b64_json) throw new Error('OpenAI returned no image data.');
+  return 'data:image/png;base64,'+image.b64_json;
+}
+async function generateGeminiImage(key, prompt) {
+  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({model:'gemini-3.1-flash-image',input:[{type:'text',text:prompt}],response_format:{type:'image',mime_type:'image/png',aspect_ratio:'16:9'}})});
+  const data=await r.json(); if (!r.ok) throw new Error(aiError(data,r.status));
+  const image=data.output_image || (data.steps||[]).flatMap(step=>step.content||[]).find(item=>item.type==='image' && item.data);
+  if (!image || !image.data) throw new Error('Gemini returned no image data.');
+  return 'data:'+(image.mime_type||'image/png')+';base64,'+image.data;
+}
+async function generateAiBackground() {
+  const provider=aiProvider(), key=document.getElementById('ai-key').value.trim(), request=document.getElementById('ai-prompt').value.trim(), status=document.getElementById('ai-status'), button=document.getElementById('ai-generate');
+  if (!key) { status.textContent='Enter your '+(provider==='openai'?'OpenAI':'Gemini')+' API key first.'; return; }
+  if (!request) { status.textContent='Describe the background you want to create first.'; return; }
+  rememberAiKey(); button.disabled=true; button.textContent='Generating…'; status.textContent='Generating in your browser…';
+  try {
+    const dataUrl=provider==='openai' ? await generateOpenAiImage(key,marqueeAiPrompt(request)) : await generateGeminiImage(key,marqueeAiPrompt(request));
+    status.textContent='Normalising the generated image for the marquee…';
+    const blob=await (await fetch(dataUrl)).blob(), fit=document.getElementById('custom-fit').value;
+    const r=await fetch('/base/upload?fit='+encodeURIComponent(fit),{method:'POST',body:blob}); if (!r.ok) throw new Error(await r.text());
+    const result=await r.json(); layoutDraft.base=result.name; layoutDraft.background_type='image'; layoutDraftDirty=true; renderCustomEditor();
+    status.textContent='Generated background is ready in the editor. Position slots, then save the layout.';
+  } catch (e) { status.textContent='Generation failed: '+e.message; }
+  button.disabled=false; button.textContent='Generate background';
+}
+document.getElementById('ai-provider').onchange=restoreAiKey;
+document.getElementById('ai-key').oninput=e=>{ aiSessionKeys[aiProvider()]=e.target.value; };
+document.getElementById('ai-remember').onchange=rememberAiKey;
+document.getElementById('ai-generate').onclick=generateAiBackground;
+restoreAiKey();
 async function selectLayout(ident) {
   const r=await fetch('/electrocoin/layout/select?id='+encodeURIComponent(ident),{method:'POST'});
   if (!r.ok) { alert('Could not select that layout.'); return; } ecoConfig=await r.json(); editingLayout=false; renderAll();

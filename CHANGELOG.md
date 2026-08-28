@@ -3,6 +3,18 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.8 — Browser-only AI backgrounds
+
+- Added optional OpenAI and Google Gemini background generation inside the
+  custom-layout editor.
+- API keys are used directly by the browser and never sent to or stored on
+  the Pi. They are session-only by default; **Remember this key on this
+  device** is an explicit local-browser opt-in.
+- Generated images are normalised through the existing 1366 × 360 background
+  pipeline, then enter the normal slot-layout editor.
+- Added a visible credit and link to raz0red's IFWG project, which inspired
+  the browser-based BYOK workflow. No IFWG source code is included here.
+
 ## v1.3.4-electrocoin.7 — Safe display switching and colour layouts
 
 - Separated the layout selected in Admin from the one currently on the
