@@ -3,6 +3,12 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.3 — Custom-editor drag fix
+
+- Kept the custom background visible while dragging or resizing a slot.
+  The editor now moves only the slot overlay during a drag rather than
+  rebuilding the canvas and reloading its background image every frame.
+
 ## v1.3.4-electrocoin.2 — Flexible Digital Marquee editor
 
 - Renamed the configuration area to **Digital Marquee (1366 × 360)**.

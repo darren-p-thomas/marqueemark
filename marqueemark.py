@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.2"
+VERSION = "1.3.4-electrocoin.3"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -719,7 +719,7 @@ function renderCustomEditor() {
   panel.classList.toggle('hidden', !isCustom());
   if (!isCustom()) return;
   canvas.innerHTML='';
-  canvas.style.backgroundImage=ecoConfig.base ? 'url(/base/'+encodeURIComponent(ecoConfig.base)+'?t='+Date.now()+')' : 'none';
+  canvas.style.backgroundImage=ecoConfig.base ? 'url(/base/'+encodeURIComponent(ecoConfig.base)+')' : 'none';
   const countPills=document.getElementById('slot-count-pills'); countPills.innerHTML='';
   ECO_SLOT_COUNTS.forEach(count => {
     const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill'; pill.textContent=count+' slot'+(count===1?'':'s');
@@ -750,12 +750,18 @@ function setSlotCount(count) {
 function startSlotDrag(event, index, mode) {
   event.preventDefault(); event.stopPropagation();
   const canvas=document.getElementById('layout-canvas'), bounds=canvas.getBoundingClientRect(), start=[...ecoConfig.windows[index]], x0=event.clientX, y0=event.clientY;
+  const slotElement=canvas.children[index];
   const move=e=>{
     const dx=(e.clientX-x0)*1366/bounds.width, dy=(e.clientY-y0)*360/bounds.height;
     let [x,y,w,h]=start;
     if (mode === 'move') { x=Math.max(0,Math.min(1366-w,Math.round(x+dx))); y=Math.max(0,Math.min(360-h,Math.round(y+dy))); }
     else { w=Math.max(60,Math.min(1366-x,(360-y)*ECO_SLOT_RATIO,Math.round(w+dx))); h=Math.round(w/ECO_SLOT_RATIO); }
-    ecoConfig.windows[index]=[x,y,w,h]; renderCustomEditor();
+    ecoConfig.windows[index]=[x,y,w,h];
+    // Move the existing overlay rather than rebuilding the canvas. Rebuilding
+    // changes the background-image URL on every pointer event, which causes
+    // a visible black flash while a browser repaints the image.
+    slotElement.style.left=(x/1366*100)+'%'; slotElement.style.top=(y/360*100)+'%';
+    slotElement.style.width=(w/1366*100)+'%'; slotElement.style.height=(h/360*100)+'%';
   };
   const end=()=>{ window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',end); };
   window.addEventListener('pointermove',move); window.addEventListener('pointerup',end);
