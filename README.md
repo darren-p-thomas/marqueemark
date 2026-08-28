@@ -69,12 +69,13 @@ so that you can align your image before downloading the pack.
 
 ### Electrocoin four-slot layout
 
-`--electrocoin` is the wide four-card layout used by the Electrocoin
-conversion. Its Admin page lets you choose a compatible base PNG and one
-choice per card: blank, the highlighted live **NeoSD Pro** card, or a
-fixed artwork card. Artwork choices use friendly game titles; an unknown
-hack or homebrew shows its PNG filename instead, for example `myhack.png`.
-Only one card can be the live NeoSD Pro card.
+`--electrocoin` enables the first **Digital Marquee (1366 × 360)**
+template: the wide four-card Electrocoin conversion. Its Admin page lets
+you choose what each card shows: blank, the highlighted live **NeoSD Pro**
+card, or a fixed artwork card. Artwork choices use friendly game titles;
+an unknown hack or homebrew shows its PNG filename instead, for example
+`myhack.png`. Only one card can be the live NeoSD Pro card. Additional
+built-in cabinet templates and a custom-base editor are planned.
 
 ## How it works
 

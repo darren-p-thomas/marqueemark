@@ -457,6 +457,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   .cal-row { display: flex; align-items: center; gap: 8px; }
   .cal-row .label { color: #999; font-size: 0.82rem; width: 44px; }
   .cal-actions { margin-top: 20px; display: flex; gap: 10px; }
+  .subheading { margin: 22px 0 6px; font-size: 1rem; color: var(--text); }
 </style>
 </head>
 <body>
@@ -465,9 +466,12 @@ ADMIN_HTML = """<!DOCTYPE html>
 <main>
 
 <section id="electrocoin-section" class="hidden">
-  <h2>Electrocoin four-slot layout</h2>
-  <p class="hint">Choose any uploaded PNG as the base, then choose what each card shows. NeoSD Pro is the special live card; artwork choices are labelled with game titles.</p>
+  <h2>Digital Marquee <span style="color:#888;font-weight:normal;font-size:0.7em">(1366 × 360)</span></h2>
+  <h3 class="subheading">Base image</h3>
+  <p class="hint">Choose the cabinet template for the wide digital marquee. More built-in layouts and custom bases are coming next.</p>
   <div class="cal-row"><span class="label">Base</span><select id="eco-base"></select></div>
+  <h3 class="subheading">Card marquee assignment</h3>
+  <p class="hint">Choose what each card window shows. NeoSD Pro is the special live card; artwork choices are labelled with game titles.</p>
   <div id="eco-cards"></div>
   <button id="eco-save" class="btn primary">Save layout</button>
 </section>
@@ -610,7 +614,20 @@ async function loadEco() {
   let titles = {}; try { titles = await (await fetch('/game-titles')).json(); } catch (_) {}
   document.getElementById('electrocoin-section').classList.remove('hidden');
   const base=document.getElementById('eco-base'); base.innerHTML='';
-  for (const f of files) { const o=new Option(f, f, false, f === c.base); base.appendChild(o); }
+  const builtins=document.createElement('optgroup'); builtins.label='Built-in templates';
+  builtins.append(new Option('Electrocoin four-slot', 'electrocoin-base.png', false, c.base === 'electrocoin-base.png'));
+  base.appendChild(builtins);
+  const upcoming=document.createElement('optgroup'); upcoming.label='Coming soon';
+  ['Neo Geo six-slot', 'Neo Geo four-slot', 'Neo Geo two-slot', 'Neo Geo one-slot', 'Custom'].forEach(name => {
+    const option=new Option(name + ' — coming soon', '', false, false); option.disabled=true; upcoming.appendChild(option);
+  });
+  base.appendChild(upcoming);
+  // Keep an already-saved custom base visible until the custom-base editor
+  // arrives, rather than silently changing someone's existing selection.
+  if (c.base !== 'electrocoin-base.png') {
+    const current=document.createElement('optgroup'); current.label='Current custom base';
+    current.append(new Option(c.base, c.base, false, true)); base.appendChild(current);
+  }
   const host=document.getElementById('eco-cards'); host.innerHTML='';
   c.cards.forEach((card, i) => {
     const row=document.createElement('div'); row.className='cal-row'; row.innerHTML='<span class="label">Card '+(i+1)+'</span>';
