@@ -87,6 +87,36 @@ RAM_SLOT = 4  # zero-based: flash slots 1-4 announce as 0-3, RAM as 4
 ART_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "art")
 LASTGAME_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lastgame.json")
 GENERIC = "generic"  # art/generic.png — fallback marquee for the overlay
+ELECTROCOIN_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "electrocoin.json")
+ELECTROCOIN_BASE_SIZE = (1366, 360)
+ELECTROCOIN_VIEWPORT_HEIGHT = 360
+ELECTROCOIN_DEFAULT = {"base": "electrocoin-base.png", "fixed": {"1": "", "2": "", "3": ""},
+    "windows": [[65, 48, 176, 230], [442, 48, 178, 230], [752, 48, 174, 230], [1125, 48, 176, 230]]}
+
+def _art_stem(value):
+    value = os.path.basename(value.lower()) if isinstance(value, str) else ""
+    if value.endswith(".png"): value = value[:-4]
+    return value if value and all(c in "abcdefghijklmnopqrstuvwxyz0123456789_-" for c in value) else ""
+
+def electro_config(raw=None):
+    cfg = {"base": ELECTROCOIN_DEFAULT["base"], "fixed": dict(ELECTROCOIN_DEFAULT["fixed"]),
+           "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]]}
+    if isinstance(raw, dict):
+        stem = _art_stem(raw.get("base"))
+        if stem: cfg["base"] = stem + ".png"
+        if isinstance(raw.get("fixed"), dict):
+            for key in cfg["fixed"]: cfg["fixed"][key] = _art_stem(raw["fixed"].get(key, ""))
+    return cfg
+
+def load_electrocoin_config():
+    try:
+        with open(ELECTROCOIN_CONFIG_PATH) as f: return electro_config(json.load(f))
+    except (OSError, ValueError): return electro_config()
+
+def save_electrocoin_config(cfg):
+    cfg = electro_config(cfg)
+    with open(ELECTROCOIN_CONFIG_PATH, "w") as f: json.dump(cfg, f, indent=2)
+    return cfg
 
 # --manual mode: this panel has no NeoSD Pro behind it (a real cartridge
 # can't announce itself), so what it shows is picked by hand from the
@@ -412,6 +442,16 @@ ADMIN_HTML = """<!DOCTYPE html>
   <small style="color:#888;font-weight:normal;font-size:0.7em">v{{VERSION}}</small></h1></header>
 <main>
 
+<section id="electrocoin-section" class="hidden">
+  <h2>Electrocoin four-slot layout</h2>
+  <p class="hint">Slots 1–3 are fixed real cartridges. Slot 4 follows NeoSD Pro automatically.</p>
+  <div class="cal-row"><span class="label">Slot 1</span><select id="eco-1"></select></div>
+  <div class="cal-row"><span class="label">Slot 2</span><select id="eco-2"></select></div>
+  <div class="cal-row"><span class="label">Slot 3</span><select id="eco-3"></select></div>
+  <div class="cal-row"><span class="label">Slot 4</span><span>NeoSD Pro — automatic</span></div>
+  <button id="eco-save" class="btn primary">Save fixed cartridges</button>
+</section>
+
 <section id="sec-showing" class="hidden">
   <h2>Now showing</h2>
   <p class="hint">This panel has no NeoSD Pro behind it, so pick its
@@ -543,6 +583,24 @@ drop.ondragleave = () => drop.classList.remove('hot');
 drop.ondrop = e => { e.preventDefault(); drop.classList.remove('hot');
                      upload(e.dataTransfer.files); };
 refresh();
+
+async function loadEco() {
+  const r = await fetch('/electrocoin/config'); if (!r.ok) return;
+  const c = await r.json(), files = await (await fetch('/list')).json();
+  document.getElementById('electrocoin-section').classList.remove('hidden');
+  for (const n of ['1','2','3']) {
+    const s=document.getElementById('eco-'+n); s.innerHTML='<option value="">— empty —</option>';
+    for (const f of files) if (f !== 'electrocoin-base.png') {
+      const o=document.createElement('option'); o.value=f.replace(/\.png$/, ''); o.textContent=f;
+      o.selected=o.value === c.fixed[n]; s.appendChild(o);
+    }
+  }
+}
+document.getElementById('eco-save').onclick = () => {
+  const q=new URLSearchParams(); for (const n of ['1','2','3']) q.set('slot'+n, document.getElementById('eco-'+n).value);
+  fetch('/electrocoin/config?'+q, {method:'POST'});
+};
+loadEco();
 
 // ------------------------------------------------- mode / power / picker
 const sel = document.getElementById('sel');
@@ -756,6 +814,8 @@ class OverlayServer:
                 elif path == "/selection":
                     self._send(200, "application/json",
                                json.dumps({"short": read_selection()}).encode())
+                elif path == "/electrocoin/config" and server.display.electrocoin:
+                    self._send(200, "application/json", json.dumps(server.display.electro_config).encode())
                 elif path == "/calibrate/state":
                     self._send(200, "application/json",
                                json.dumps(self._cal_state()).encode())
@@ -794,6 +854,16 @@ class OverlayServer:
                     self._handle_delete(params.get("name", ""))
                 elif path == "/select":
                     self._handle_select(params.get("name", ""))
+                elif path == "/electrocoin/config":
+                    if not server.display.electrocoin:
+                        self._send(404, "text/plain", b"Electrocoin mode disabled")
+                    else:
+                        cfg = electro_config(server.display.electro_config)
+                        for n in ("1", "2", "3"):
+                            if "slot" + n in params: cfg["fixed"][n] = _art_stem(params["slot" + n])
+                        cfg = save_electrocoin_config(cfg)
+                        CAL_QUEUE.put(("electro_config", cfg))
+                        self._send(200, "application/json", json.dumps(cfg).encode())
                 elif path == "/display/sleep":
                     DISPLAY_QUEUE.put(("sleep",))
                     self._send(200, "text/plain", b"ok")
@@ -948,18 +1018,20 @@ class OverlayServer:
 # -------------------------------------------------------------- display
 
 class Display:
-    def __init__(self, art_dir, rotate=0):
+    def __init__(self, art_dir, rotate=0, electrocoin=False):
         pygame.init()
         pygame.mouse.set_visible(False)
         self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
         phys = self.screen.get_size()
 
-        cal = load_calibration()
+        self.electrocoin = electrocoin
+        self.phys = phys
+        cal = None if electrocoin else load_calibration()
         rect_l, tilt, saved_rotate, saved_dpad = cal if cal else (None, 0.0, None, 0)
         # A rotate saved via the web "Flip" button overrides the --rotate
         # launch flag, so flipping never requires editing the systemd
         # unit again once it's been set once.
-        self.rotate = (saved_rotate if saved_rotate is not None else rotate) % 360
+        self.rotate = 0 if electrocoin else (saved_rotate if saved_rotate is not None else rotate) % 360
         # Which physical edge this panel's ribbon exits decides which way
         # the D-pad needs correcting — an installation detail, not
         # something derivable from the rotate angle. 0 = no correction
@@ -969,7 +1041,7 @@ class Display:
         # Logical canvas: what we compose art onto. For 90/270 the canvas
         # is the physical screen turned on its side. (90 and 270 share
         # the same logical size - they differ only in final rotation.)
-        if self.rotate in (90, 270):
+        if self.rotate in (90, 270) and not electrocoin:
             self.size = (phys[1], phys[0])
         else:
             self.size = phys
@@ -994,6 +1066,8 @@ class Display:
         self.wake_count = 0  # bumped on every wake() so callers can force
                              # a redraw even when the selection is unchanged
         self.restore_callback = None  # set by main() — see _restore_last_display
+        self.electro_config = load_electrocoin_config() if electrocoin else None
+        self.electro_neosd = None
 
         self.blank()
 
@@ -1027,6 +1101,27 @@ class Display:
         self._place(surf, img)
         return surf
 
+    def _electro_art(self, stem):
+        try: return pygame.image.load(os.path.join(self.art_dir, stem + ".png")).convert() if stem else None
+        except (pygame.error, OSError): return None
+
+    def _electro_surface(self):
+        surf = pygame.Surface(self.phys); surf.fill(BG)
+        vp = pygame.Rect(0, 0, self.phys[0], min(ELECTROCOIN_VIEWPORT_HEIGHT, self.phys[1]))
+        base = self._electro_art(os.path.splitext(self.electro_config["base"])[0])
+        if base: surf.blit(pygame.transform.smoothscale(base, vp.size), vp)
+        sx, sy = vp.w / 1366, vp.h / 360
+        stems = [self.electro_config["fixed"][str(i)] for i in (1, 2, 3)]
+        stems.append(self.electro_neosd["short"] if self.electro_neosd else "")
+        for r, stem in zip(self.electro_config["windows"], stems):
+            target = pygame.Rect(round(r[0]*sx), round(r[1]*sy), round(r[2]*sx), round(r[3]*sy))
+            art = self._electro_art(stem)
+            if art: surf.blit(pygame.transform.smoothscale(art, target.size), target)
+        return surf
+
+    def _show_electrocoin(self):
+        if not self.calibrating: self._fade_to(self._electro_surface())
+
     def _text_card(self, game):
         surf = pygame.Surface(self.size)
         surf.fill(BG)
@@ -1059,6 +1154,8 @@ class Display:
     def show_game(self, game):
         if self.calibrating:
             return  # a live calibration session owns the screen
+        if self.electrocoin:
+            self.electro_neosd = game; self._show_electrocoin(); return
         path = os.path.join(self.art_dir, "%s.png" % game["short"])
         if os.path.exists(path):
             surf = self._fit(pygame.image.load(path).convert())
@@ -1085,6 +1182,8 @@ class Display:
         """Generic marquee for when no game can be identified."""
         if self.calibrating:
             return
+        if self.electrocoin:
+            self.electro_neosd = None; self._show_electrocoin(); return
         path = os.path.join(self.art_dir, GENERIC + ".png")
         if os.path.exists(path):
             self._fade_to(self._fit(pygame.image.load(path).convert()))
@@ -1169,6 +1268,8 @@ class Display:
 
     def _handle_cal_cmd(self, cmd):
         op = cmd[0]
+        if op == "electro_config" and self.electrocoin:
+            self.electro_config = electro_config(cmd[1]); self._show_electrocoin(); return
         if op == "enter":
             if self.screen is None:
                 self.wake()
@@ -1645,6 +1746,8 @@ def main():
                     help="no NeoSD Pro on this panel: pick the marquee by hand "
                          "from the admin page. Use this for a second marquee "
                          "on its own Pi, or for any cab without a NeoSD Pro.")
+    ap.add_argument("--electrocoin", action="store_true",
+                    help="wide four-slot Electrocoin base: three fixed cards and live NeoSD art")
     ap.add_argument("--art-source", default=None,
                     help="--manual only: base URL of the primary MarqueeMark "
                          "(e.g. http://marquee.local:8080). Art is pulled from "
@@ -1657,7 +1760,7 @@ def main():
                          "Omit to control sleep by hand from the admin page.")
     args = ap.parse_args()
 
-    display = Display(args.art, rotate=args.rotate)
+    display = Display(args.art, rotate=args.rotate, electrocoin=args.electrocoin)
 
     if args.calibrate:
         calibrate(display)
@@ -1677,7 +1780,9 @@ def main():
         if overlay:
             overlay.publish(game)
 
-    if args.manual:
+    if args.electrocoin:
+        run_neosd(args, display, publish, overlay)
+    elif args.manual:
         run_manual(args, display, publish)
     else:
         run_neosd(args, display, publish, overlay)

@@ -1,4 +1,5 @@
-art/
+art/*
+!art/electrocoin-base.png
 calibration.json
 lastgame.json
 __pycache__/

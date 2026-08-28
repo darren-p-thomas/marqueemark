@@ -530,6 +530,22 @@ correct an upside-down image.
 | `--sleep-source` | none | `--manual` only. URL of another MarqueeMark's `/current` endpoint. This panel sleeps and wakes to match that cabinet's power state. Omit to control sleep by hand instead. |
 | `--calibrate` | (none) | Advanced: offline terminal calibration for a bench with no network. The admin page is the normal way to calibrate. Keys: arrows move, `+`/`-` resize, `,` `.` `<` `>` tilt, `d` cycle D-pad orientation, `t` step size, `p` pattern/art preview, `r` reset, `s` save, `q` quit. |
 
+## Electrocoin four-slot proof of concept
+
+The optional `--electrocoin` mode is for a wide digital marquee in an
+Electrocoin four-slot cabinet. It draws a fixed base image with four portrait
+windows: three manually selected real cartridges and a fourth window that
+follows the NeoSD Pro automatically.
+
+Upload a base image named `electrocoin-base.png` through the normal art manager,
+then start MarqueeMark with `--electrocoin`. The admin page gains three dropdowns
+for assigning the fixed cartridge artwork. The first proof-of-concept layout
+expects a 1366 x 360 base image and uses the upper 360 rows of the HDMI output.
+The saved choices live in `/opt/marqueemark/electrocoin.json`.
+
+This mode does not yet identify the MVS motherboard's active physical slot;
+GPIO-based active-slot highlighting is a future enhancement.
+
 ## Troubleshooting
 
 - **"Connection refused" on the admin page**: you skipped the reboot after
