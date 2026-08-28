@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.15"
+VERSION = "1.3.4-electrocoin.16"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -627,7 +627,15 @@ ADMIN_HTML = """<!DOCTYPE html>
   #live-layout-panel { margin: 14px 0 24px; padding: 14px; border: 1px solid #30354b; border-radius: 10px; background: #141520; }
   #live-layout-canvas { position: relative; width: min(720px,100%); aspect-ratio: 1366 / 360; margin-top: 10px;
                          overflow: hidden; background: #050508 center / cover no-repeat; border: 1px solid #5e6380; }
-  #live-layout-canvas img { position: absolute; object-fit: fill; }
+  .marquee-card-image { position: absolute; object-fit: fill; }
+  .neosd-placeholder { position: absolute; box-sizing: border-box; display: flex; flex-direction: column;
+                       align-items: center; justify-content: center; gap: 3px; overflow: hidden;
+                       border: 2px solid #e23c58; background: linear-gradient(145deg,#30101b,#09080e);
+                       color: #fff; text-align: center; text-shadow: 0 1px 2px #000; font-weight: 700; }
+  .neosd-placeholder::before { content: '★'; color: #ef3f5a; font-size: clamp(11px,2.1vw,22px); line-height: 1; }
+  .neosd-placeholder span { font-size: clamp(8px,1.35vw,16px); white-space: nowrap; }
+  .neosd-placeholder small { color: #f0a7b3; font-size: clamp(6px,.85vw,10px); text-transform: uppercase;
+                             letter-spacing: .08em; white-space: nowrap; }
   #layout-preview-canvas .layout-slot { pointer-events: none; }
   #custom-editor { margin-top: 14px; padding: 14px; border: 1px solid #30354b; border-radius: 10px; background: #11121b; }
   #layout-canvas { position: relative; width: min(100%, 1000px); aspect-ratio: 1366 / 360;
@@ -696,7 +704,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 </div>
 <div id="layout-preview-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="layout-preview-title">
   <div class="modal" id="layout-preview-dialog"><button class="modal-close" id="layout-preview-close" aria-label="Close">×</button>
-    <h2 id="layout-preview-title">Layout preview</h2><p class="hint">Mini-marquee slots are shown as guides only.</p><div id="layout-preview-canvas"></div>
+    <h2 id="layout-preview-title">Layout preview</h2><p class="hint">Saved card assignments are shown here. NeoSD Pro shows its current game when available, otherwise a live-marquee placeholder.</p><div id="layout-preview-canvas"></div>
   </div>
 </div>
 
@@ -841,16 +849,33 @@ const blankCard=()=>({source:'blank',art:''});
 function selectedLayout() {
   return (ecoConfig.layouts||[]).find(layout=>layout.id===ecoConfig.selected_layout_id) || null;
 }
-function selectedCards() {
-  const layout=selectedLayout(); if (!layout) return [];
+function cardsForLayout(layout) {
+  if (!layout) return [];
   const saved=ecoConfig.assignments && ecoConfig.assignments[layout.id];
   return saved ? saved.map(card=>({...card})) : Array.from({length:layout.windows.length},blankCard);
 }
+function selectedCards() { return cardsForLayout(selectedLayout()); }
 function layoutBackgroundPath(layout) {
   // Built-in templates live with application art; uploaded custom bases live
   // in the separate base directory.  Do not infer this from a layout ID:
   // future built-in templates use the same art location as Electrocoin.
   return layout.base_source === 'builtin' ? '/art/' : '/base/';
+}
+function positionMiniMarquee(element, slot) {
+  element.style.left=(slot[0]/1366*100)+'%'; element.style.top=(slot[1]/360*100)+'%';
+  element.style.width=(slot[2]/1366*100)+'%'; element.style.height=(slot[3]/360*100)+'%';
+}
+function appendMiniMarquee(canvas, card, slot, liveShort) {
+  if (!card || !slot || card.source==='blank') return false;
+  if (card.source==='neosd' && !liveShort) {
+    const placeholder=document.createElement('div'); placeholder.className='neosd-placeholder';
+    placeholder.innerHTML='<span>NeoSD Pro</span><small>Live marquee</small>'; positionMiniMarquee(placeholder,slot);
+    canvas.appendChild(placeholder); return true;
+  }
+  const stem=card.source==='neosd' ? liveShort : card.source==='fixed' ? card.art : '';
+  if (!stem) return false;
+  const art=document.createElement('img'); art.className='marquee-card-image'; art.src='/art/'+encodeURIComponent(stem)+'.png'; art.alt='';
+  art.onerror=()=>art.remove(); positionMiniMarquee(art,slot); canvas.appendChild(art); return true;
 }
 function renderLivePreview() {
   if (!ecoConfig) return;
@@ -860,12 +885,7 @@ function renderLivePreview() {
   const image=layout.background_type!=='color', path=layoutBackgroundPath(layout);
   canvas.innerHTML=''; canvas.style.backgroundImage=image?'url('+path+encodeURIComponent(layout.base)+')':'none'; canvas.style.backgroundColor=image?'#050508':(layout.background_color||'#000000');
   name.textContent='Currently showing: '+layout.name+(ecoLiveShort ? ' · NeoSD Pro: '+(ecoTitles[ecoLiveShort]||ecoLiveShort) : '');
-  (ecoConfig.cards||[]).forEach((card,index)=>{
-    const stem=card.source==='neosd' ? ecoLiveShort : card.source==='fixed' ? card.art : '';
-    const slot=layout.windows[index]; if (!stem || !slot) return;
-    const art=document.createElement('img'); art.src='/art/'+encodeURIComponent(stem)+'.png'; art.alt=''; art.onerror=()=>art.remove();
-    art.style.left=(slot[0]/1366*100)+'%'; art.style.top=(slot[1]/360*100)+'%'; art.style.width=(slot[2]/1366*100)+'%'; art.style.height=(slot[3]/360*100)+'%'; canvas.appendChild(art);
-  });
+  (ecoConfig.cards||[]).forEach((card,index)=>appendMiniMarquee(canvas,card,layout.windows[index],ecoLiveShort));
 }
 function startEcoLiveUpdates() {
   if (ecoLiveEvents) return;
@@ -1183,9 +1203,11 @@ function previewLayout(layout) {
   const canvas=document.getElementById('layout-preview-canvas'); canvas.innerHTML='';
   const image=layout.background_type!=='color', path=layoutBackgroundPath(layout);
   canvas.style.backgroundImage=image?'url('+path+encodeURIComponent(layout.base)+')':'none'; canvas.style.backgroundColor=image?'#050508':(layout.background_color||'#000000');
+  const cards=cardsForLayout(layout), liveShort=layout.id===ecoConfig.layout_id ? ecoLiveShort : null;
   layout.windows.forEach((slot,index)=>{
+    if (appendMiniMarquee(canvas,cards[index],slot,liveShort)) return;
     const guide=document.createElement('div'); guide.className='layout-slot'; guide.textContent='Slot '+(index+1);
-    guide.style.left=(slot[0]/1366*100)+'%'; guide.style.top=(slot[1]/360*100)+'%'; guide.style.width=(slot[2]/1366*100)+'%'; guide.style.height=(slot[3]/360*100)+'%'; canvas.appendChild(guide);
+    positionMiniMarquee(guide,slot); canvas.appendChild(guide);
   });
   document.getElementById('layout-preview-modal').classList.remove('hidden');
 }

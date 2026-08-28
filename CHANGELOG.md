@@ -3,6 +3,13 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.4-electrocoin.16 — Assigned-art previews
+
+- The live Admin preview now shows a NeoSD Pro mini-marquee placeholder until
+  the cabinet reports the current game.
+- Saved-layout previews now render their saved card assignments instead of
+  showing only cyan slot guides.
+
 ## v1.3.4-electrocoin.15 — Built-in template preview repair
 
 - Fixed the Admin UI preview path for built-in layouts. The Neo Geo one-slot
