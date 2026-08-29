@@ -736,7 +736,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 </div>
 <div id="layout-preview-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="layout-preview-title">
   <div class="modal" id="layout-preview-dialog"><button class="modal-close" id="layout-preview-close" aria-label="Close">×</button>
-    <h2 id="layout-preview-title">Layout preview</h2><p class="hint">Saved card assignments are shown here. NeoSD Pro shows its current game when available, otherwise a live-marquee placeholder.</p><div id="layout-preview-canvas"></div>
+    <h2 id="layout-preview-title">Layout preview</h2><p id="layout-preview-hint" class="hint">Saved card assignments are shown here. NeoSD Pro shows its current game when available, otherwise a live-marquee placeholder.</p><div id="layout-preview-canvas"></div>
   </div>
 </div>
 
@@ -1251,6 +1251,9 @@ async function confirmLayoutName() {
 function closePreviewModal() { document.getElementById('layout-preview-modal').classList.add('hidden'); }
 function previewLayout(layout) {
   document.getElementById('layout-preview-title').textContent=layout.name;
+  document.getElementById('layout-preview-hint').textContent=layout.id==='viewport-test'
+    ? 'This diagnostic renders coloured bands from pixel rows 340–419. On the physical panel, note the final band visible before the lower bezel to measure the active viewport height.'
+    : 'Saved card assignments are shown here. NeoSD Pro shows its current game when available, otherwise a live-marquee placeholder.';
   const canvas=document.getElementById('layout-preview-canvas'); canvas.innerHTML='';
   const image=layout.background_type!=='color', path=layoutBackgroundPath(layout);
   canvas.style.backgroundImage=image?'url('+path+encodeURIComponent(layout.base)+')':'none'; canvas.style.backgroundColor=image?'#050508':(layout.background_color||'#000000');
