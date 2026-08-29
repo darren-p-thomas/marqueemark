@@ -1258,6 +1258,7 @@ function previewLayout(layout) {
   const image=layout.background_type!=='color', path=layoutBackgroundPath(layout);
   canvas.style.backgroundImage=image?'url('+path+encodeURIComponent(layout.base)+')':'none'; canvas.style.backgroundColor=image?'#050508':(layout.background_color||'#000000');
   const cards=cardsForLayout(layout), liveShort=layout.id===ecoConfig.layout_id ? ecoLiveShort : null;
+  if (layout.id==='viewport-test') { document.getElementById('layout-preview-modal').classList.remove('hidden'); return; }
   layout.windows.forEach((slot,index)=>{
     if (appendMiniMarquee(canvas,cards[index],slot,liveShort)) return;
     const guide=document.createElement('div'); guide.className='layout-slot'; guide.textContent='Slot '+(index+1);
