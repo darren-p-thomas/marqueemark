@@ -629,8 +629,9 @@ ADMIN_HTML = """<!DOCTYPE html>
   .btn.danger { background: #4a1e1e; border-color: #6a2a2a; color: #fca; }
   .btn.danger:hover { background: #5a2424; }
   .hidden { display: none !important; }
-  .display-mode-button { white-space: nowrap; padding: 6px 10px; font-size: .78rem; }
+  .display-mode-button { white-space: nowrap; flex: 0 0 auto; padding: 6px 10px; font-size: .78rem; }
   .display-mode-button .mode-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #63d986; margin-right: 6px; }
+  .display-mode-button.needs-setup .mode-dot { background: #e6b94f; }
   .mode-options, .admin-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
   .mode-option { min-width: 160px; text-align: left; padding: 10px 13px; border: 1px solid #30354b;
                  border-radius: 8px; background: #171a26; color: #9399aa; cursor: pointer; }
@@ -740,7 +741,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 <body>
 <header><div class="header-row"><h1>Marquee<span>Mark</span> — Admin
   <small style="color:#888;font-weight:normal;font-size:0.7em">v{{VERSION}}</small></h1>
-  <button id="display-mode-change" type="button" class="btn display-mode-button"><span class="mode-dot"></span><span id="display-mode-summary">Active display</span> · Change…</button>
+  <button id="display-mode-change" type="button" class="btn display-mode-button"><span class="mode-dot"></span><span id="display-mode-summary">Display setup needed</span> <span id="display-mode-action">· Set up</span></button>
 </div></header>
 <main>
 
@@ -801,9 +802,9 @@ ADMIN_HTML = """<!DOCTYPE html>
 </div>
 <div id="display-mode-warning-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="display-mode-warning-title">
   <div class="modal"><button class="modal-close" id="display-mode-warning-close" aria-label="Close">×</button>
-    <h2 id="display-mode-warning-title">Change active display?</h2>
-    <p class="hint">You are about to change the renderer driving HDMI. Make sure the intended Mini Marquee or Ultrawide Marquee display is connected. Your artwork and layout settings will be retained.</p>
-    <div class="cal-actions"><button id="display-mode-warning-continue" class="btn primary">Continue</button><button id="display-mode-warning-cancel" class="btn">Cancel</button></div>
+    <h2 id="display-mode-warning-title">Switch display type?</h2>
+    <p id="display-mode-warning-copy" class="hint"></p>
+    <div class="cal-actions"><button id="display-mode-warning-continue" class="btn primary">Switch display</button><button id="display-mode-warning-cancel" class="btn">Cancel</button></div>
   </div>
 </div>
 <div id="display-mode-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="display-mode-title">
@@ -815,6 +816,14 @@ ADMIN_HTML = """<!DOCTYPE html>
     </div>
     <p id="display-mode-current" class="hint" style="margin:12px 0 0"></p>
     <div class="cal-actions"><button id="display-mode-apply" class="btn primary">Save and activate</button><button id="display-mode-cancel" class="btn">Cancel</button></div>
+  </div>
+</div>
+<div id="display-mode-keep-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="display-mode-keep-title">
+  <div class="modal"><button class="modal-close" id="display-mode-keep-close" aria-label="Revert and close">×</button>
+    <h2 id="display-mode-keep-title">Testing display type</h2>
+    <p id="display-mode-keep-copy" class="hint"></p>
+    <p id="display-mode-countdown" style="font-weight:700"></p>
+    <div class="cal-actions"><button id="display-mode-keep-confirm" class="btn primary">Keep this display type</button><button id="display-mode-keep-revert" class="btn">Revert now</button></div>
   </div>
 </div>
 
@@ -1430,7 +1439,7 @@ loadEco();
 const sel = document.getElementById('sel');
 const selNow = document.getElementById('sel-now');
 const pwrNow = document.getElementById('pwr-now');
-let isManual = false, activeDisplayMode = 'mini', pendingDisplayMode = 'mini', displayModeConfigured = false, firstSetupPrompted = false;
+let isManual = false, activeDisplayMode = 'mini', pendingDisplayMode = 'mini', displayModeConfigured = false, firstSetupPrompted = false, displayModePreview = null, displayModeCountdownTimer = null;
 const ADMIN_TAB_KEY='marqueemark-admin-tab';
 const savedAdminTab=localStorage.getItem(ADMIN_TAB_KEY);
 let hasSavedAdminTab=!!savedAdminTab;
@@ -1448,18 +1457,32 @@ document.querySelectorAll('[data-admin-tab]').forEach(button=>button.onclick=()=
 setAdminTab(savedAdminTab || 'mini', !!savedAdminTab);
 
 function displayModeName(mode) { return mode==='ultrawide'?'Ultrawide Marquee':'Mini Marquee'; }
+function displayModeDescription(mode) {
+  return mode==='ultrawide'
+    ? 'wide layouts with one or more mini-marquee cards'
+    : 'original portrait marquee artwork and calibration';
+}
 function renderDisplayMode() {
   document.querySelectorAll('[data-display-mode]').forEach(button=>{
     const selected=button.dataset.displayMode===pendingDisplayMode;
     button.classList.toggle('selected',selected); button.setAttribute('aria-checked',selected);
   });
-  document.getElementById('display-mode-summary').textContent='Active: '+displayModeName(activeDisplayMode);
-  document.getElementById('display-mode-current').textContent='Currently driving: '+displayModeName(activeDisplayMode)+'.';
+  const change=document.getElementById('display-mode-change');
+  change.classList.toggle('needs-setup',!displayModeConfigured || !!displayModePreview);
+  document.getElementById('display-mode-summary').textContent=displayModePreview ? 'Testing: '+displayModeName(activeDisplayMode) : displayModeConfigured ? displayModeName(activeDisplayMode) : 'Display setup needed';
+  document.getElementById('display-mode-action').textContent=displayModePreview ? '· Keep?' : displayModeConfigured ? '· Change' : '· Set up';
+  document.getElementById('display-mode-current').textContent=displayModeConfigured
+    ? 'Currently driving: '+displayModeName(activeDisplayMode)+'.'
+    : 'No display type is configured yet. Saving your choice will immediately activate it.';
   document.getElementById('display-mode-apply').disabled=!pendingDisplayMode || (displayModeConfigured && pendingDisplayMode===activeDisplayMode);
   if (ecoConfig) renderAll();
 }
 function closeDisplayModeWarning() { document.getElementById('display-mode-warning-modal').classList.add('hidden'); }
 function closeDisplayModeSetup() { document.getElementById('display-mode-modal').classList.add('hidden'); }
+function closeDisplayModeKeep() {
+  document.getElementById('display-mode-keep-modal').classList.add('hidden');
+  if (displayModeCountdownTimer) { clearInterval(displayModeCountdownTimer); displayModeCountdownTimer=null; }
+}
 function dismissDisplayModeSetup() {
   if (!displayModeConfigured) sessionStorage.setItem('marqueemark-display-setup-dismissed','1');
   closeDisplayModeSetup();
@@ -1473,26 +1496,74 @@ function openDisplayModeSetup(firstVisit=false) {
   document.getElementById('display-mode-cancel').textContent=firstVisit?'Set up later':'Cancel';
   document.getElementById('display-mode-modal').classList.remove('hidden'); renderDisplayMode();
 }
+function targetDisplayMode() { return activeDisplayMode==='ultrawide'?'mini':'ultrawide'; }
+function openDisplayModeWarning() {
+  if (displayModePreview) { document.getElementById('display-mode-keep-modal').classList.remove('hidden'); return; }
+  if (!displayModeConfigured) { openDisplayModeSetup(true); return; }
+  const target=targetDisplayMode(), targetName=displayModeName(target);
+  document.getElementById('display-mode-warning-title').textContent='Switch to '+targetName+'?';
+  document.getElementById('display-mode-warning-copy').textContent='This is rarely needed. Switching takes effect immediately: MarqueeMark will redraw the HDMI output using the '+targetName+' renderer for '+displayModeDescription(target)+'. Only continue after connecting that display. Your saved Mini Marquee and Ultrawide Marquee settings are kept.';
+  document.getElementById('display-mode-warning-continue').textContent='Switch to '+targetName;
+  document.getElementById('display-mode-warning-modal').classList.remove('hidden');
+}
+function renderDisplayModeCountdown() {
+  if (!displayModePreview) return;
+  const seconds=Math.max(0,Math.ceil((displayModePreview.deadline-Date.now())/1000));
+  document.getElementById('display-mode-countdown').textContent='Reverting automatically in '+seconds+' second'+(seconds===1?'':'s')+'.';
+}
+function openDisplayModeKeep(mode, previous, seconds) {
+  displayModePreview={mode,previous,deadline:Date.now()+Math.max(1,seconds)*1000};
+  document.getElementById('display-mode-keep-title').textContent='Keep '+displayModeName(mode)+'?';
+  document.getElementById('display-mode-keep-copy').textContent=mode===previous
+    ? 'The HDMI output is already using '+displayModeName(mode)+' as its temporary startup fallback. Keep it to record this as the display connected to this Pi.'
+    : 'The HDMI output has changed now and is using '+displayModeName(mode)+' for '+displayModeDescription(mode)+'. If this is not the connected display, it will automatically return to '+displayModeName(previous)+' unless you keep it.';
+  document.getElementById('display-mode-keep-modal').classList.remove('hidden');
+  if (displayModeCountdownTimer) clearInterval(displayModeCountdownTimer);
+  renderDisplayModeCountdown(); displayModeCountdownTimer=setInterval(renderDisplayModeCountdown,250);
+  renderDisplayMode();
+}
+async function tryDisplayMode(mode, button) {
+  if (button) button.disabled=true;
+  try {
+    const response=await fetch('/display/mode/preview?layout='+encodeURIComponent(mode),{method:'POST'});
+    if (!response.ok) throw new Error(await response.text());
+    const result=await response.json();
+    activeDisplayMode=mode; pendingDisplayMode=mode; closeDisplayModeSetup(); closeDisplayModeWarning(); openDisplayModeKeep(mode,result.previous,result.revert_in);
+  } catch (error) { alert('Could not try display mode: '+error.message); }
+  finally { if (button) button.disabled=false; }
+}
+async function confirmDisplayModePreview() {
+  const button=document.getElementById('display-mode-keep-confirm'); button.disabled=true;
+  try {
+    const response=await fetch('/display/mode/confirm',{method:'POST'}); if (!response.ok) throw new Error(await response.text());
+    displayModeConfigured=true; displayModePreview=null; closeDisplayModeKeep(); renderDisplayMode();
+  } catch (error) { alert('Could not keep this display type: '+error.message); }
+  finally { button.disabled=false; }
+}
+async function revertDisplayModePreview() {
+  const button=document.getElementById('display-mode-keep-revert'); button.disabled=true;
+  try {
+    const response=await fetch('/display/mode/cancel',{method:'POST'}); if (!response.ok) throw new Error(await response.text());
+    const result=await response.json(); activeDisplayMode=result.layout; pendingDisplayMode=result.layout; displayModePreview=null; closeDisplayModeKeep(); renderDisplayMode();
+  } catch (error) { alert('Could not revert display type: '+error.message); }
+  finally { button.disabled=false; }
+}
 document.querySelectorAll('[data-display-mode]').forEach(button=>button.onclick=()=>{
   pendingDisplayMode=button.dataset.displayMode; renderDisplayMode();
 });
-document.getElementById('display-mode-change').onclick=()=>document.getElementById('display-mode-warning-modal').classList.remove('hidden');
+document.getElementById('display-mode-change').onclick=openDisplayModeWarning;
 document.getElementById('display-mode-warning-cancel').onclick=closeDisplayModeWarning;
 document.getElementById('display-mode-warning-close').onclick=closeDisplayModeWarning;
-document.getElementById('display-mode-warning-continue').onclick=()=>{closeDisplayModeWarning(); openDisplayModeSetup(false);};
+document.getElementById('display-mode-warning-continue').onclick=()=>tryDisplayMode(targetDisplayMode(),document.getElementById('display-mode-warning-continue'));
 document.getElementById('display-mode-close').onclick=dismissDisplayModeSetup;
 document.getElementById('display-mode-cancel').onclick=dismissDisplayModeSetup;
 document.getElementById('display-mode-warning-modal').onclick=e=>{if(e.target===e.currentTarget)closeDisplayModeWarning();};
 document.getElementById('display-mode-modal').onclick=e=>{if(e.target===e.currentTarget)dismissDisplayModeSetup();};
-document.getElementById('display-mode-apply').onclick=async()=>{
-  const button=document.getElementById('display-mode-apply'); button.disabled=true;
-  try {
-    const response=await fetch('/display/mode?layout='+encodeURIComponent(pendingDisplayMode),{method:'POST'});
-    if (!response.ok) throw new Error(await response.text());
-    activeDisplayMode=pendingDisplayMode; displayModeConfigured=true; closeDisplayModeSetup(); renderDisplayMode();
-  } catch (error) { alert('Could not save display mode: '+error.message); }
-  finally { button.disabled=false; }
-};
+document.getElementById('display-mode-apply').onclick=()=>tryDisplayMode(pendingDisplayMode,document.getElementById('display-mode-apply'));
+document.getElementById('display-mode-keep-confirm').onclick=confirmDisplayModePreview;
+document.getElementById('display-mode-keep-revert').onclick=revertDisplayModePreview;
+document.getElementById('display-mode-keep-close').onclick=revertDisplayModePreview;
+document.getElementById('display-mode-keep-modal').onclick=e=>{if(e.target===e.currentTarget)revertDisplayModePreview();};
 
 let selListCache = [];  // last-known art list, so we only rebuild the
                         // <select> when it actually changes
@@ -1503,6 +1574,12 @@ async function refreshMode() {
   isManual = !!m.manual;
   activeDisplayMode=m.layout==='ultrawide'?'ultrawide':'mini';
   displayModeConfigured=!!m.layout_configured;
+  if (m.layout_pending) {
+    const isNewPreview=!displayModePreview || displayModePreview.mode!==m.layout_pending;
+    if (isNewPreview) openDisplayModeKeep(m.layout_pending,activeDisplayMode===m.layout_pending?'mini':'ultrawide',m.layout_revert_in||30);
+  } else if (displayModePreview) {
+    displayModePreview=null; closeDisplayModeKeep();
+  }
   if (!hasSavedAdminTab) setAdminTab(activeDisplayMode, false);
   renderDisplayMode();
   if (!displayModeConfigured && !firstSetupPrompted && !sessionStorage.getItem('marqueemark-display-setup-dismissed')) {
@@ -1654,6 +1731,9 @@ class OverlayServer:
         self.display = display         # read-only status for /calibrate/state
         self._clients = set()          # set[queue.Queue]
         self._lock = threading.Lock()
+        self._display_mode_lock = threading.Lock()
+        self._display_mode_pending = None
+        self._display_mode_token = 0
         self._current = None           # last published game dict (or None)
         server = self
 
@@ -1706,6 +1786,7 @@ class OverlayServer:
                         "manual": bool(getattr(server, "manual", False)),
                         "layout": server.display.layout_mode,
                         "layout_configured": saved_display_mode() is not None,
+                        **server.display_mode_preview_status(),
                         "asleep": server.display.screen is None,
                         "manual_sleep": server.display.manual_sleep,
                     }).encode())
@@ -1820,6 +1901,28 @@ class OverlayServer:
                         return
                     CAL_QUEUE.put(("display_mode", mode))
                     self._send(200, "application/json", json.dumps({"layout": mode}).encode())
+                elif path == "/display/mode/preview":
+                    mode = params.get("layout", "")
+                    if mode not in DISPLAY_MODES:
+                        self._send(400, "text/plain", b"layout must be mini or ultrawide")
+                        return
+                    preview = server.preview_display_mode(mode)
+                    if preview is None:
+                        self._send(409, "text/plain", b"that display type is already active")
+                        return
+                    self._send(200, "application/json", json.dumps(preview).encode())
+                elif path == "/display/mode/confirm":
+                    confirmed = server.confirm_display_mode_preview()
+                    if confirmed is None:
+                        self._send(409, "text/plain", b"no display change is awaiting confirmation")
+                        return
+                    self._send(200, "application/json", json.dumps(confirmed).encode())
+                elif path == "/display/mode/cancel":
+                    reverted = server.cancel_display_mode_preview()
+                    if reverted is None:
+                        self._send(409, "text/plain", b"no display change is awaiting confirmation")
+                        return
+                    self._send(200, "application/json", json.dumps(reverted).encode())
                 elif path.startswith("/calibrate/"):
                     self._handle_calibrate(path[len("/calibrate/"):], params)
                 else:
@@ -2090,6 +2193,72 @@ class OverlayServer:
                 self.wfile.flush()
 
         self._httpd = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+
+    def display_mode_preview_status(self):
+        """Status safe to expose to Admin while a temporary switch is live."""
+        with self._display_mode_lock:
+            pending = self._display_mode_pending
+            if not pending:
+                return {"layout_pending": None, "layout_revert_in": 0}
+            remaining = max(0, int(pending["deadline"] - time.monotonic() + .999))
+            return {"layout_pending": pending["mode"],
+                    "layout_revert_in": remaining}
+
+    def preview_display_mode(self, mode):
+        """Try a renderer for 30 seconds; the Pi reverts it unless confirmed."""
+        with self._display_mode_lock:
+            previous = self.display.layout_mode
+            # First-run setup may confirm the renderer chosen as the startup
+            # fallback. It still needs a timed confirmation so the Pi records
+            # that deliberate choice, even though no redraw is necessary.
+            if mode == previous and saved_display_mode() is not None:
+                return None
+            old = self._display_mode_pending
+            if old:
+                old["timer"].cancel()
+            self._display_mode_token += 1
+            token = self._display_mode_token
+            deadline = time.monotonic() + 30
+            timer = threading.Timer(30, self._auto_revert_display_mode, args=(token,))
+            timer.daemon = True
+            self._display_mode_pending = {"mode": mode, "previous": previous,
+                                          "deadline": deadline, "timer": timer,
+                                          "token": token}
+            timer.start()
+        CAL_QUEUE.put(("display_mode", mode))
+        return {"layout": mode, "previous": previous, "revert_in": 30}
+
+    def _auto_revert_display_mode(self, token):
+        with self._display_mode_lock:
+            pending = self._display_mode_pending
+            if not pending or pending["token"] != token:
+                return
+            self._display_mode_pending = None
+        CAL_QUEUE.put(("display_mode", pending["previous"]))
+        print("[MarqueeMark] display type change timed out; restored %s" % pending["previous"])
+
+    def confirm_display_mode_preview(self):
+        with self._display_mode_lock:
+            pending = self._display_mode_pending
+            if not pending:
+                return None
+            try:
+                save_display_mode(pending["mode"])
+            except OSError:
+                return None
+            pending["timer"].cancel()
+            self._display_mode_pending = None
+        return {"layout": pending["mode"], "confirmed": True}
+
+    def cancel_display_mode_preview(self):
+        with self._display_mode_lock:
+            pending = self._display_mode_pending
+            if not pending:
+                return None
+            pending["timer"].cancel()
+            self._display_mode_pending = None
+        CAL_QUEUE.put(("display_mode", pending["previous"]))
+        return {"layout": pending["previous"], "reverted": True}
 
     def start(self):
         t = threading.Thread(target=self._httpd.serve_forever, daemon=True)
