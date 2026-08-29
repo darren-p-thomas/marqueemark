@@ -116,6 +116,11 @@ BUILTIN_LAYOUTS = {
                           "base_source": "builtin", "background_type": "image", "background_color": "#000000",
                           "windows": [[251, 121, 153, 200], [488, 121, 153, 200],
                                       [725, 121, 153, 200], [962, 121, 153, 200]]},
+    "neogeo-six-slot": {"id": "neogeo-six-slot", "name": "Neo Geo 6 Slot", "base": "neogeo-six-slot.png",
+                         "base_source": "builtin", "background_type": "image", "background_color": "#000000",
+                         "windows": [[110, 131, 123, 162], [315, 131, 123, 162],
+                                     [518, 131, 123, 162], [725, 131, 123, 162],
+                                     [929, 131, 123, 162], [1134, 131, 123, 162]]},
     # A diagnostic, not a normal cabinet template. Its image is deliberately
     # 420px tall so panels with a different visible height can be measured.
     "viewport-test": {"id": "viewport-test", "name": "Advanced: Viewport Height Test", "base": "ultrawide-viewport-test.png",
@@ -1212,7 +1217,7 @@ function renderBasePills() {
   const liveFirst=items=>items.slice().sort((a,b)=>(b.id===ecoConfig.layout_id)-(a.id===ecoConfig.layout_id));
   const layouts=ecoConfig.layouts || [];
   liveFirst(layouts.filter(layout=>layout.base_source==='builtin' && layout.id!=='viewport-test')).forEach(layout=>add(builtins,layout));
-  ['Neo Geo 6 Slot','Neo Geo 2 Slot'].forEach(name=>add(builtins,{id:'coming-'+name,name:name+' · coming soon'},true));
+  ['Neo Geo 2 Slot'].forEach(name=>add(builtins,{id:'coming-'+name,name:name+' · coming soon'},true));
   liveFirst(layouts.filter(layout=>layout.base_source!=='builtin')).forEach(layout=>add(customs,layout));
   liveFirst(layouts.filter(layout=>layout.id==='viewport-test')).forEach(layout=>add(diagnostics,layout));
 }
