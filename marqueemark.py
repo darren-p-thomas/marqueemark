@@ -114,8 +114,8 @@ BUILTIN_LAYOUTS = {
                         "windows": [[1053, 36, 231, 306]]},
     "neogeo-four-slot": {"id": "neogeo-four-slot", "name": "Neo Geo 4 Slot", "base": "neogeo-four-slot.png",
                           "base_source": "builtin", "background_type": "image", "background_color": "#000000",
-                          "windows": [[132, 114, 213, 225], [430, 114, 212, 225],
-                                      [723, 114, 212, 225], [1019, 114, 213, 225]]},
+                          "windows": [[251, 121, 153, 200], [488, 121, 153, 200],
+                                      [725, 121, 153, 200], [962, 121, 153, 200]]},
     # A diagnostic, not a normal cabinet template. Its image is deliberately
     # 420px tall so panels with a different visible height can be measured.
     "viewport-test": {"id": "viewport-test", "name": "Advanced: Viewport Height Test", "base": "ultrawide-viewport-test.png",
@@ -2399,8 +2399,13 @@ class Display:
         keeps its own calibration/layout data, so changing mode does not erase
         either setup.
         """
-        if mode not in DISPLAY_MODES or mode == self.layout_mode:
+        if mode not in DISPLAY_MODES:
             return False
+        # A display can retain an old frame after a previous mode change
+        # (for example if HDMI woke slowly). Re-applying the already-saved
+        # mode must redraw it too, otherwise Admin can truthfully report the
+        # requested renderer while the panel still shows the old one.
+        same_mode = mode == self.layout_mode
         self.calibrating = False
         self.cal_work = None
         self.layout_mode = mode
@@ -2427,7 +2432,8 @@ class Display:
             self.show_game(self.last_game)
         else:
             self.show_idle()
-        print("[MarqueeMark] active display mode: %s" % mode)
+        print("[MarqueeMark] %s display mode: %s" %
+              ("reasserted" if same_mode else "active", mode))
         return True
 
     def _place(self, canvas, card, rect=None, tilt=None):
