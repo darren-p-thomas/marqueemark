@@ -114,8 +114,8 @@ BUILTIN_LAYOUTS = {
                         "windows": [[1053, 36, 231, 306]]},
     "neogeo-four-slot": {"id": "neogeo-four-slot", "name": "Neo Geo 4 Slot", "base": "neogeo-four-slot.png",
                           "base_source": "builtin", "background_type": "image", "background_color": "#000000",
-                          "windows": [[424, 96, 114, 238], [564, 96, 114, 238],
-                                      [704, 96, 114, 238], [845, 96, 114, 238]]},
+                          "windows": [[132, 114, 213, 225], [430, 114, 212, 225],
+                                      [723, 114, 212, 225], [1019, 114, 213, 225]]},
     # A diagnostic, not a normal cabinet template. Its image is deliberately
     # 420px tall so panels with a different visible height can be measured.
     "viewport-test": {"id": "viewport-test", "name": "Advanced: Viewport Height Test", "base": "ultrawide-viewport-test.png",
