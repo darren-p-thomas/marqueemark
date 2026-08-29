@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.4-electrocoin.19"
+VERSION = "1.3.5-layout-modes.1"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -91,6 +91,7 @@ LASTGAME_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lastga
 GENERIC = "generic"  # art/generic.png — fallback marquee for the overlay
 ELECTROCOIN_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "electrocoin.json")
 ELECTROCOIN_LAYOUTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "digital_layouts.json")
+DISPLAY_MODE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "display_mode.json")
 GAME_TITLES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "game_titles.json")
 ELECTROCOIN_CANVAS_WIDTH = 1366
 ELECTROCOIN_CANVAS_HEIGHT = 380
@@ -117,6 +118,24 @@ BUILTIN_LAYOUTS = {
                       "base_source": "builtin", "background_type": "image", "background_color": "#000000",
                       "viewport_height": 420, "diagnostic": True, "windows": []},
 }
+
+DISPLAY_MODES = ("mini", "ultrawide")
+
+def load_display_mode(default="mini"):
+    """Read the user's persisted active display type, without credentials."""
+    try:
+        with open(DISPLAY_MODE_PATH) as f:
+            mode = json.load(f).get("mode")
+        return mode if mode in DISPLAY_MODES else default
+    except (OSError, ValueError, AttributeError):
+        return default
+
+def save_display_mode(mode):
+    if mode not in DISPLAY_MODES:
+        return False
+    with open(DISPLAY_MODE_PATH, "w") as f:
+        json.dump({"mode": mode}, f)
+    return True
 
 def _art_stem(value):
     value = os.path.basename(value.lower()) if isinstance(value, str) else ""
@@ -605,6 +624,20 @@ ADMIN_HTML = """<!DOCTYPE html>
   .btn.danger { background: #4a1e1e; border-color: #6a2a2a; color: #fca; }
   .btn.danger:hover { background: #5a2424; }
   .hidden { display: none !important; }
+  .display-choice { padding: 16px; margin-bottom: 20px; border: 1px solid #30354b;
+                    border-radius: 10px; background: #141520; }
+  .display-choice h2 { color: #e8e8f0; margin-bottom: 6px; }
+  .mode-options, .admin-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .mode-option { min-width: 160px; text-align: left; padding: 10px 13px; border: 1px solid #30354b;
+                 border-radius: 8px; background: #171a26; color: #9399aa; cursor: pointer; }
+  .mode-option strong, .mode-option small { display: block; }
+  .mode-option small { margin-top: 2px; font-size: .76rem; color: inherit; }
+  .mode-option.selected { background: #334a80; border-color: #86a8ff; color: #fff; }
+  .admin-tabs { border-bottom: 1px solid #30354b; margin-bottom: 20px; }
+  .admin-tab-button { border: 0; border-bottom: 3px solid transparent; background: transparent; color: #9ba1b2;
+                      padding: 9px 12px; font: 600 .92rem inherit; cursor: pointer; }
+  .admin-tab-button:hover { color: #fff; }
+  .admin-tab-button.selected { color: #fff; border-color: #86a8ff; }
   #drop { border: 2px dashed #555; border-radius: 10px; padding: 34px;
           text-align: center; color: #aaa; cursor: pointer; transition: all .15s; }
   #drop.hot { border-color: #c8102e; color: #fff; background: #1c1420; }
@@ -705,8 +738,24 @@ ADMIN_HTML = """<!DOCTYPE html>
   <small style="color:#888;font-weight:normal;font-size:0.7em">v{{VERSION}}</small></h1></header>
 <main>
 
-<section id="electrocoin-section" class="hidden">
-  <h2>Digital Marquee <span style="color:#888;font-weight:normal;font-size:0.7em">(1366 × 380)</span></h2>
+<section class="display-choice">
+  <h2>What display do you have?</h2>
+  <p class="hint">Choose the display MarqueeMark should drive. Both Admin areas remain available to explore and configure.</p>
+  <div class="mode-options" role="radiogroup" aria-label="Active display type">
+    <button type="button" class="mode-option" data-display-mode="mini" role="radio"><strong>Mini Marquee</strong><small>Original portrait marquee artwork and calibration</small></button>
+    <button type="button" class="mode-option" data-display-mode="ultrawide" role="radio"><strong>Ultrawide Marquee</strong><small>Wide layouts with one or more mini-marquee cards</small></button>
+  </div>
+  <p id="display-mode-status" class="hint" style="margin:10px 0 0"></p>
+</section>
+
+<nav class="admin-tabs" aria-label="Marquee administration">
+  <button type="button" class="admin-tab-button" data-admin-tab="mini">Mini Marquee</button>
+  <button type="button" class="admin-tab-button" data-admin-tab="ultrawide">Ultrawide Marquee</button>
+</nav>
+
+<section id="tab-ultrawide" class="admin-tab">
+<div id="electrocoin-section" class="hidden">
+  <h2>Ultrawide Marquee <span style="color:#888;font-weight:normal;font-size:0.7em">(1366 × 380)</span></h2>
   <section id="live-layout-panel"><h3 class="subheading" style="margin-top:0">On display</h3>
     <p id="live-layout-name" class="hint">Loading current layout…</p><div id="live-layout-canvas" aria-label="Current digital marquee preview"></div>
   </section>
@@ -739,6 +788,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div id="eco-cards"></div>
     <div class="cal-actions"><button id="eco-save" class="btn primary">Save card assignments</button><button id="layout-send" class="btn primary">Send to display</button><button id="layout-delete" class="btn hidden">Delete this custom layout</button></div>
   </section>
+</div>
 </section>
 
 <div id="layout-name-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="layout-name-title">
@@ -754,6 +804,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   </div>
 </div>
 
+<section id="tab-mini" class="admin-tab">
 <section id="sec-showing" class="hidden">
   <h2>Now showing</h2>
   <p class="hint">This panel has no NeoSD Pro behind it, so pick its
@@ -835,6 +886,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   <div id="status"></div>
   <div id="warn"></div>
   <div id="grid"></div>
+</section>
 </section>
 
 <script>
@@ -1335,7 +1387,9 @@ function renderAll() {
     document.getElementById('eco-assignment-hint').textContent='Assign marquee art to “'+(layout?layout.name:'this layout')+'”. NeoSD Pro is the special live card.';
     document.getElementById('layout-delete').classList.toggle('hidden',!layout || !layout.id.startsWith('custom-')); renderCards();
     const send=document.getElementById('layout-send'), isLive=layout && layout.id===ecoConfig.layout_id;
-    send.disabled=!layout || isLive; send.textContent=isLive?'Currently on display':'Send to display';
+    const ultrawideActive=typeof activeDisplayMode==='undefined' || activeDisplayMode==='ultrawide';
+    send.disabled=!layout || isLive || !ultrawideActive;
+    send.textContent=!ultrawideActive?'Choose Ultrawide mode to send':isLive?'Currently on display':'Send to display';
   }
 }
 async function saveCardAssignments() {
@@ -1362,7 +1416,42 @@ loadEco();
 const sel = document.getElementById('sel');
 const selNow = document.getElementById('sel-now');
 const pwrNow = document.getElementById('pwr-now');
-let isManual = false;
+let isManual = false, activeDisplayMode = 'mini';
+const ADMIN_TAB_KEY='marqueemark-admin-tab';
+const savedAdminTab=localStorage.getItem(ADMIN_TAB_KEY);
+let hasSavedAdminTab=!!savedAdminTab;
+
+function setAdminTab(tab, remember=true) {
+  if (tab !== 'mini' && tab !== 'ultrawide') return;
+  document.querySelectorAll('.admin-tab').forEach(panel=>panel.classList.toggle('hidden',panel.id !== 'tab-'+tab));
+  document.querySelectorAll('[data-admin-tab]').forEach(button=>{
+    const selected=button.dataset.adminTab===tab;
+    button.classList.toggle('selected',selected); button.setAttribute('aria-selected',selected);
+  });
+  if (remember) { localStorage.setItem(ADMIN_TAB_KEY,tab); hasSavedAdminTab=true; }
+}
+document.querySelectorAll('[data-admin-tab]').forEach(button=>button.onclick=()=>setAdminTab(button.dataset.adminTab));
+setAdminTab(savedAdminTab || 'mini', !!savedAdminTab);
+
+function renderDisplayMode() {
+  document.querySelectorAll('[data-display-mode]').forEach(button=>{
+    const selected=button.dataset.displayMode===activeDisplayMode;
+    button.classList.toggle('selected',selected); button.setAttribute('aria-checked',selected);
+  });
+  document.getElementById('display-mode-status').textContent='Currently driving: '+(activeDisplayMode==='ultrawide'?'Ultrawide Marquee.':'Mini Marquee.');
+  if (ecoConfig) renderAll();
+}
+document.querySelectorAll('[data-display-mode]').forEach(button=>button.onclick=async()=>{
+  const mode=button.dataset.displayMode;
+  if (mode===activeDisplayMode) return;
+  button.disabled=true;
+  try {
+    const response=await fetch('/display/mode?layout='+encodeURIComponent(mode),{method:'POST'});
+    if (!response.ok) throw new Error(await response.text());
+    activeDisplayMode=mode; renderDisplayMode();
+  } catch (error) { alert('Could not switch display mode: '+error.message); }
+  finally { button.disabled=false; }
+});
 
 let selListCache = [];  // last-known art list, so we only rebuild the
                         // <select> when it actually changes
@@ -1371,6 +1460,9 @@ async function refreshMode() {
   let m;
   try { m = await (await fetch('/mode')).json(); } catch (_) { return; }
   isManual = !!m.manual;
+  activeDisplayMode=m.layout==='ultrawide'?'ultrawide':'mini';
+  if (!hasSavedAdminTab) setAdminTab(activeDisplayMode, false);
+  renderDisplayMode();
   document.getElementById('sec-showing').classList.toggle('hidden', !isManual);
   pwrNow.textContent = m.asleep
     ? (m.manual_sleep ? 'asleep (by hand)' : 'asleep')
@@ -1567,13 +1659,14 @@ class OverlayServer:
                 elif path == "/mode":
                     self._send(200, "application/json", json.dumps({
                         "manual": bool(getattr(server, "manual", False)),
+                        "layout": server.display.layout_mode,
                         "asleep": server.display.screen is None,
                         "manual_sleep": server.display.manual_sleep,
                     }).encode())
                 elif path == "/selection":
                     self._send(200, "application/json",
                                json.dumps({"short": read_selection()}).encode())
-                elif path == "/electrocoin/config" and server.display.electrocoin:
+                elif path == "/electrocoin/config":
                     self._send(200, "application/json", json.dumps(electro_payload(server.display.electro_config)).encode())
                 elif path == "/calibrate/state":
                     self._send(200, "application/json",
@@ -1628,7 +1721,7 @@ class OverlayServer:
                 elif path == "/electrocoin/layout/display":
                     self._display_electro_layout(params.get("id", ""))
                 elif path == "/electrocoin/config":
-                    if not server.display.electrocoin:
+                    if not isinstance(server.display.electro_config, dict):
                         self._send(404, "text/plain", b"Electrocoin mode disabled")
                     else:
                         cfg = electro_config(server.display.electro_config)
@@ -1669,6 +1762,18 @@ class OverlayServer:
                 elif path == "/display/wake":
                     DISPLAY_QUEUE.put(("wake",))
                     self._send(200, "text/plain", b"ok")
+                elif path == "/display/mode":
+                    mode = params.get("layout", "")
+                    if mode not in DISPLAY_MODES:
+                        self._send(400, "text/plain", b"layout must be mini or ultrawide")
+                        return
+                    try:
+                        save_display_mode(mode)
+                    except OSError:
+                        self._send(500, "text/plain", b"could not save display mode")
+                        return
+                    CAL_QUEUE.put(("display_mode", mode))
+                    self._send(200, "application/json", json.dumps({"layout": mode}).encode())
                 elif path.startswith("/calibrate/"):
                     self._handle_calibrate(path[len("/calibrate/"):], params)
                 else:
@@ -1688,8 +1793,8 @@ class OverlayServer:
                 self._send(200, "text/plain", safe.encode())
 
             def _save_electro_layout(self, params):
-                if not server.display.electrocoin:
-                    self._send(404, "text/plain", b"Digital Marquee mode disabled")
+                if not isinstance(server.display.electro_config, dict):
+                    self._send(404, "text/plain", b"Ultrawide configuration unavailable")
                     return
                 name, base = _layout_name(params.get("name")), _safe_base_name(params.get("base"))
                 background_type = params.get("background_type") if params.get("background_type") in ("image", "color") else "image"
@@ -1729,8 +1834,8 @@ class OverlayServer:
                 self._send(200, "application/json", json.dumps(electro_payload(cfg)).encode())
 
             def _select_electro_layout(self, ident):
-                if not server.display.electrocoin:
-                    self._send(404, "text/plain", b"Digital Marquee mode disabled")
+                if not isinstance(server.display.electro_config, dict):
+                    self._send(404, "text/plain", b"Ultrawide configuration unavailable")
                     return
                 layouts = load_custom_layouts(); layout = find_layout(ident, layouts)
                 if not layout:
@@ -1741,8 +1846,8 @@ class OverlayServer:
                 self._send(200, "application/json", json.dumps(electro_payload(cfg)).encode())
 
             def _display_electro_layout(self, ident):
-                if not server.display.electrocoin:
-                    self._send(404, "text/plain", b"Digital Marquee mode disabled")
+                if not isinstance(server.display.electro_config, dict):
+                    self._send(404, "text/plain", b"Ultrawide configuration unavailable")
                     return
                 layouts = load_custom_layouts(); layout = find_layout(ident, layouts)
                 if not layout:
@@ -1755,7 +1860,7 @@ class OverlayServer:
 
             def _delete_electro_layout(self, ident, replace):
                 ident = _safe_layout_id(ident)
-                if not server.display.electrocoin or not ident:
+                if not isinstance(server.display.electro_config, dict) or not ident:
                     self._send(400, "text/plain", b"bad layout")
                     return
                 layouts = load_custom_layouts(); doomed = next((layout for layout in layouts if layout["id"] == ident), None)
@@ -1780,7 +1885,7 @@ class OverlayServer:
 
             def _rename_electro_layout(self, ident, name):
                 ident, name = _safe_layout_id(ident), _layout_name(name)
-                if not server.display.electrocoin or not ident or not name:
+                if not isinstance(server.display.electro_config, dict) or not ident or not name:
                     self._send(400, "text/plain", b"bad layout name")
                     return
                 layouts = load_custom_layouts(); layout = next((item for item in layouts if item["id"] == ident), None)
@@ -1958,9 +2063,12 @@ class OverlayServer:
 # -------------------------------------------------------------- display
 
 class Display:
-    def __init__(self, art_dir, rotate=0, electrocoin=False):
+    def __init__(self, art_dir, rotate=0, electrocoin=False, layout_mode=None):
         pygame.init()
-        self.electrocoin = electrocoin
+        # ``electrocoin`` is retained internally for compatibility with the
+        # first wide-panel implementation. The public name is Ultrawide.
+        self.layout_mode = layout_mode if layout_mode in DISPLAY_MODES else ("ultrawide" if electrocoin else "mini")
+        self.electrocoin = self.layout_mode == "ultrawide"
         self.headless = False
         # A panel can take several seconds after power-on before KMS will
         # accept a fullscreen surface.  Keep the web server alive in that
@@ -1974,7 +2082,7 @@ class Display:
             # HDMI unplugged. Keep it alive with an off-screen surface; a
             # later service restart after reconnecting HDMI restores output.
             self.headless = True
-            self.screen = pygame.Surface(ELECTROCOIN_BASE_SIZE if electrocoin else (1024, 768))
+            self.screen = pygame.Surface(ELECTROCOIN_BASE_SIZE if self.electrocoin else (1024, 768))
             self._headless_retry_at = time.monotonic() + 2.0
             print("[MarqueeMark] no HDMI display (%s); running headless" % e)
         phys = self.screen.get_size()
@@ -2002,6 +2110,7 @@ class Display:
 
         self.art_dir = art_dir
         self.current = None
+        self.last_game = None
         self.tilt = tilt
         self.rect = pygame.Rect(*rect_l) if rect_l else \
             pygame.Rect(0, 0, self.size[0], self.size[1])
@@ -2020,10 +2129,50 @@ class Display:
         self.wake_count = 0  # bumped on every wake() so callers can force
                              # a redraw even when the selection is unchanged
         self.restore_callback = None  # set by main() — see _restore_last_display
-        self.electro_config = load_electrocoin_config() if electrocoin else None
+        # Keep Ultrawide layouts available in Admin even while the active
+        # physical display is the Mini Marquee.
+        self.electro_config = load_electrocoin_config()
         self.electro_neosd = None
 
         self.blank()
+
+    def set_layout_mode(self, mode):
+        """Switch the live renderer between the portrait and Ultrawide UI.
+
+        The browser's display-type selector persists this choice.  Each mode
+        keeps its own calibration/layout data, so changing mode does not erase
+        either setup.
+        """
+        if mode not in DISPLAY_MODES or mode == self.layout_mode:
+            return False
+        self.calibrating = False
+        self.cal_work = None
+        self.layout_mode = mode
+        self.electrocoin = mode == "ultrawide"
+        if self.electrocoin:
+            self.rotate = 0
+            self.dpad_offset = 0
+            self.tilt = 0.0
+            self.size = self.phys
+            self.rect = pygame.Rect(0, 0, self.size[0], self.size[1])
+            self.electro_config = load_electrocoin_config()
+            self.electro_neosd = self.last_game
+        else:
+            cal = load_calibration()
+            rect_l, self.tilt, saved_rotate, self.dpad_offset = cal if cal else (None, 0.0, None, 0)
+            self.rotate = (saved_rotate if saved_rotate is not None else 90) % 360
+            self.size = (self.phys[1], self.phys[0]) if self.rotate in (90, 270) else self.phys
+            self.rect = pygame.Rect(*rect_l) if rect_l else pygame.Rect(0, 0, self.size[0], self.size[1])
+            # Preserve the independently saved Ultrawide library while Mini
+            # Marquee is active; it is only rendered when switched back.
+            self.electro_neosd = None
+        self.current = None
+        if self.last_game:
+            self.show_game(self.last_game)
+        else:
+            self.show_idle()
+        print("[MarqueeMark] active display mode: %s" % mode)
+        return True
 
     def _place(self, canvas, card, rect=None, tilt=None):
         """Put a window-sized card onto the canvas, tilt-corrected.
@@ -2121,6 +2270,7 @@ class Display:
     def show_game(self, game):
         if self.calibrating:
             return  # a live calibration session owns the screen
+        self.last_game = game
         if self.electrocoin:
             self.electro_neosd = game; self._show_electrocoin(); return
         path = os.path.join(self.art_dir, "%s.png" % game["short"])
@@ -2149,6 +2299,7 @@ class Display:
         """Generic marquee for when no game can be identified."""
         if self.calibrating:
             return
+        self.last_game = None
         if self.electrocoin:
             self.electro_neosd = None; self._show_electrocoin(); return
         path = os.path.join(self.art_dir, GENERIC + ".png")
@@ -2277,6 +2428,8 @@ class Display:
 
     def _handle_cal_cmd(self, cmd):
         op = cmd[0]
+        if op == "display_mode":
+            self.set_layout_mode(cmd[1]); return
         if op == "electro_config" and self.electrocoin:
             self.electro_config = electro_config(cmd[1]); self._show_electrocoin(); return
         if op == "enter":
@@ -2755,8 +2908,10 @@ def main():
                     help="no NeoSD Pro on this panel: pick the marquee by hand "
                          "from the admin page. Use this for a second marquee "
                          "on its own Pi, or for any cab without a NeoSD Pro.")
+    ap.add_argument("--layout", choices=["mini", "ultrawide"], default=None,
+                    help="initial display type: mini (original portrait marquee) or ultrawide")
     ap.add_argument("--electrocoin", action="store_true",
-                    help="wide four-slot Electrocoin base: three fixed cards and live NeoSD art")
+                    help="deprecated compatibility alias; uses the Ultrawide Marquee display type")
     ap.add_argument("--art-source", default=None,
                     help="--manual only: base URL of the primary MarqueeMark "
                          "(e.g. http://marquee.local:8080). Art is pulled from "
@@ -2769,7 +2924,8 @@ def main():
                          "Omit to control sleep by hand from the admin page.")
     args = ap.parse_args()
 
-    display = Display(args.art, rotate=args.rotate, electrocoin=args.electrocoin)
+    initial_mode = load_display_mode("ultrawide" if args.electrocoin else (args.layout or "mini"))
+    display = Display(args.art, rotate=args.rotate, layout_mode=initial_mode)
 
     if args.calibrate:
         calibrate(display)
@@ -2789,9 +2945,7 @@ def main():
         if overlay:
             overlay.publish(game)
 
-    if args.electrocoin:
-        run_neosd(args, display, publish, overlay)
-    elif args.manual:
+    if args.manual:
         run_manual(args, display, publish)
     else:
         run_neosd(args, display, publish, overlay)
