@@ -195,6 +195,10 @@ def builtin_layout(ident="electrocoin"):
 def is_builtin_layout(ident):
     return ident in BUILTIN_LAYOUTS
 
+def is_diagnostic_layout(ident):
+    """Diagnostics are display tools, never card-marquee layouts."""
+    return bool(BUILTIN_LAYOUTS.get(ident, {}).get("diagnostic"))
+
 def find_layout(ident, layouts=None):
     if is_builtin_layout(ident): return builtin_layout(ident)
     for layout in layouts if layouts is not None else load_custom_layouts():
@@ -235,7 +239,9 @@ def electro_config(raw=None):
         ident = raw.get("selected_layout_id")
         if is_builtin_layout(ident) or _safe_layout_id(ident): cfg["selected_layout_id"] = ident
         cards = raw.get("cards")
-        if isinstance(cards, list) and len(cards) in ELECTROCOIN_SLOT_COUNTS:
+        valid_active_count = (len(cards) in ELECTROCOIN_SLOT_COUNTS or
+                              (len(cards) == 0 and is_diagnostic_layout(cfg["layout_id"]))) if isinstance(cards, list) else False
+        if valid_active_count:
             cfg["cards"] = _cards(cards, len(cards))
             windows = raw.get("windows")
             if isinstance(windows, list) and len(windows) == len(cfg["cards"]):
@@ -248,8 +254,15 @@ def electro_config(raw=None):
             cfg["assignments"] = {}
             for ident, cards in assignments.items():
                 ident = ident if is_builtin_layout(ident) else _safe_layout_id(ident)
-                if isinstance(cards, list) and len(cards) in ELECTROCOIN_SLOT_COUNTS and ident:
+                valid_assignment_count = (len(cards) in ELECTROCOIN_SLOT_COUNTS or
+                                          (len(cards) == 0 and is_diagnostic_layout(ident))) if isinstance(cards, list) else False
+                if valid_assignment_count and ident:
                     cfg["assignments"][ident] = _cards(cards, len(cards))
+        # Never inherit a previous cabinet's assignments when opening a
+        # diagnostic. Older saved configs did not understand zero-slot
+        # layouts, so explicitly canonicalise them here as well.
+        if is_diagnostic_layout(cfg["layout_id"]):
+            cfg["cards"], cfg["windows"] = [], []
         cfg["assignments"][cfg["layout_id"]] = [dict(c) for c in cfg["cards"]]
     return cfg
 
@@ -918,8 +931,9 @@ function renderLivePreview() {
   if (!layout) { canvas.innerHTML=''; name.textContent='No live layout is available.'; return; }
   const image=layout.background_type!=='color', path=layoutBackgroundPath(layout);
   canvas.innerHTML=''; canvas.style.backgroundImage=image?'url('+path+encodeURIComponent(layout.base)+')':'none'; canvas.style.backgroundColor=image?'#050508':(layout.background_color||'#000000');
-  name.textContent='Currently showing: '+layout.name+(ecoLiveShort ? ' · NeoSD Pro: '+(ecoTitles[ecoLiveShort]||ecoLiveShort) : '');
-  (ecoConfig.cards||[]).forEach((card,index)=>appendMiniMarquee(canvas,card,layout.windows[index],ecoLiveShort));
+  const diagnostic=!!layout.diagnostic;
+  name.textContent='Currently showing: '+layout.name+(diagnostic ? '.' : (ecoLiveShort ? ' · NeoSD Pro: '+(ecoTitles[ecoLiveShort]||ecoLiveShort) : ''));
+  if (!diagnostic) (ecoConfig.cards||[]).forEach((card,index)=>appendMiniMarquee(canvas,card,layout.windows[index],ecoLiveShort));
 }
 function startEcoLiveUpdates() {
   if (ecoLiveEvents) return;
