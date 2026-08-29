@@ -92,8 +92,10 @@ GENERIC = "generic"  # art/generic.png — fallback marquee for the overlay
 ELECTROCOIN_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "electrocoin.json")
 ELECTROCOIN_LAYOUTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "digital_layouts.json")
 GAME_TITLES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "game_titles.json")
-ELECTROCOIN_BASE_SIZE = (1366, 360)
-ELECTROCOIN_VIEWPORT_HEIGHT = 360
+ELECTROCOIN_CANVAS_WIDTH = 1366
+ELECTROCOIN_CANVAS_HEIGHT = 380
+ELECTROCOIN_BASE_SIZE = (ELECTROCOIN_CANVAS_WIDTH, ELECTROCOIN_CANVAS_HEIGHT)
+ELECTROCOIN_VIEWPORT_HEIGHT = ELECTROCOIN_CANVAS_HEIGHT
 ELECTROCOIN_SLOT_COUNTS = (1, 2, 4, 6)
 ELECTROCOIN_SLOT_RATIO = 176 / 230
 ELECTROCOIN_DEFAULT = {"base": "electrocoin-base.png",
@@ -101,14 +103,19 @@ ELECTROCOIN_DEFAULT = {"base": "electrocoin-base.png",
     "layout_id": "electrocoin",
     "cards": [{"source": "fixed", "art": ""}, {"source": "fixed", "art": ""},
               {"source": "fixed", "art": ""}, {"source": "neosd", "art": ""}],
-    "windows": [[65, 48, 176, 230], [442, 48, 178, 230], [752, 48, 174, 230], [1125, 48, 176, 230]]}
+    "windows": [[65, 51, 176, 243], [442, 51, 178, 243], [752, 51, 174, 243], [1125, 51, 176, 243]]}
 BUILTIN_LAYOUTS = {
     "electrocoin": {"id": "electrocoin", "name": "Electrocoin 4 Slot", "base": "electrocoin-base.png",
                     "base_source": "builtin", "background_type": "image", "background_color": "#000000",
                     "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]]},
     "neogeo-one-slot": {"id": "neogeo-one-slot", "name": "Neo Geo 1 Slot", "base": "neogeo-one-slot.png",
                         "base_source": "builtin", "background_type": "image", "background_color": "#000000",
-                        "windows": [[1053, 34, 231, 290]]},
+                        "windows": [[1053, 36, 231, 306]]},
+    # A diagnostic, not a normal cabinet template. Its image is deliberately
+    # 420px tall so panels with a different visible height can be measured.
+    "viewport-test": {"id": "viewport-test", "name": "Advanced: Viewport Height Test", "base": "ultrawide-viewport-test.png",
+                      "base_source": "builtin", "background_type": "image", "background_color": "#000000",
+                      "viewport_height": 420, "diagnostic": True, "windows": []},
 }
 
 def _art_stem(value):
@@ -126,8 +133,8 @@ def _slot_rect(value):
         return None
     try: x, y, w, h = (round(float(v)) for v in value)
     except (TypeError, ValueError): return None
-    w, h = max(40, min(w, 1366)), max(40, min(h, 360))
-    x, y = max(0, min(x, 1366 - w)), max(0, min(y, 360 - h))
+    w, h = max(40, min(w, ELECTROCOIN_CANVAS_WIDTH)), max(40, min(h, ELECTROCOIN_CANVAS_HEIGHT))
+    x, y = max(0, min(x, ELECTROCOIN_CANVAS_WIDTH - w)), max(0, min(y, ELECTROCOIN_CANVAS_HEIGHT - h))
     return [x, y, w, h]
 
 def _safe_layout_id(value):
@@ -166,10 +173,16 @@ def load_custom_layouts():
         background_type = layout.get("background_type") if layout.get("background_type") in ("image", "color") else "image"
         background_color = _hex_colour(layout.get("background_color")) or "#000000"
         windows = layout.get("windows")
+        source_height = layout.get("canvas_height", 360)
+        source_height = source_height if source_height in (360, ELECTROCOIN_CANVAS_HEIGHT) else 360
         parsed = [_slot_rect(r) for r in windows] if isinstance(windows, list) and len(windows) in ELECTROCOIN_SLOT_COUNTS else []
+        if source_height != ELECTROCOIN_CANVAS_HEIGHT:
+            parsed = [_slot_rect([r[0], round(r[1] * ELECTROCOIN_CANVAS_HEIGHT / source_height),
+                                 r[2], round(r[3] * ELECTROCOIN_CANVAS_HEIGHT / source_height)]) for r in parsed]
         if ident and ident not in seen and name and (base if background_type == "image" else True) and parsed and all(parsed):
             result.append({"id": ident, "name": name, "base": base, "background_type": background_type,
-                           "background_color": background_color, "windows": parsed}); seen.add(ident)
+                           "background_color": background_color, "windows": parsed,
+                           "canvas_height": ELECTROCOIN_CANVAS_HEIGHT}); seen.add(ident)
     return result
 
 def save_custom_layouts(layouts):
@@ -181,6 +194,10 @@ def builtin_layout(ident="electrocoin"):
 
 def is_builtin_layout(ident):
     return ident in BUILTIN_LAYOUTS
+
+def is_diagnostic_layout(ident):
+    """Diagnostics are display tools, never card-marquee layouts."""
+    return bool(BUILTIN_LAYOUTS.get(ident, {}).get("diagnostic"))
 
 def find_layout(ident, layouts=None):
     if is_builtin_layout(ident): return builtin_layout(ident)
@@ -222,7 +239,9 @@ def electro_config(raw=None):
         ident = raw.get("selected_layout_id")
         if is_builtin_layout(ident) or _safe_layout_id(ident): cfg["selected_layout_id"] = ident
         cards = raw.get("cards")
-        if isinstance(cards, list) and len(cards) in ELECTROCOIN_SLOT_COUNTS:
+        valid_active_count = (len(cards) in ELECTROCOIN_SLOT_COUNTS or
+                              (len(cards) == 0 and is_diagnostic_layout(cfg["layout_id"]))) if isinstance(cards, list) else False
+        if valid_active_count:
             cfg["cards"] = _cards(cards, len(cards))
             windows = raw.get("windows")
             if isinstance(windows, list) and len(windows) == len(cfg["cards"]):
@@ -235,8 +254,15 @@ def electro_config(raw=None):
             cfg["assignments"] = {}
             for ident, cards in assignments.items():
                 ident = ident if is_builtin_layout(ident) else _safe_layout_id(ident)
-                if isinstance(cards, list) and len(cards) in ELECTROCOIN_SLOT_COUNTS and ident:
+                valid_assignment_count = (len(cards) in ELECTROCOIN_SLOT_COUNTS or
+                                          (len(cards) == 0 and is_diagnostic_layout(ident))) if isinstance(cards, list) else False
+                if valid_assignment_count and ident:
                     cfg["assignments"][ident] = _cards(cards, len(cards))
+        # Never inherit a previous cabinet's assignments when opening a
+        # diagnostic. Older saved configs did not understand zero-slot
+        # layouts, so explicitly canonicalise them here as well.
+        if is_diagnostic_layout(cfg["layout_id"]):
+            cfg["cards"], cfg["windows"] = [], []
         cfg["assignments"][cfg["layout_id"]] = [dict(c) for c in cfg["cards"]]
     return cfg
 
@@ -245,6 +271,16 @@ def load_electrocoin_config():
         with open(ELECTROCOIN_CONFIG_PATH) as f: raw = json.load(f)
     except (OSError, ValueError): return electro_config()
     cfg = electro_config(raw)
+    # Built-in templates and legacy custom layouts were authored on the old
+    # 360px canvas. Always use their current stored geometry on load so a
+    # layout and its card assignments cannot drift apart after an upgrade.
+    active = find_layout(cfg["layout_id"], load_custom_layouts())
+    if active:
+        cfg["base"], cfg["base_source"] = active["base"], active.get("base_source", "custom")
+        cfg["background_type"] = active.get("background_type", "image")
+        cfg["background_color"] = active.get("background_color", "#000000")
+        cfg["windows"] = [list(r) for r in active["windows"]]
+        cfg["cards"] = _cards(cfg.get("assignments", {}).get(active["id"], cfg["cards"]), len(cfg["windows"]))
     # Preserve an already-built pre-library Custom layout on upgrade rather
     # than leaving it as an anonymous one-off configuration.
     if raw.get("base_source") == "custom" and not _safe_layout_id(raw.get("layout_id")):
@@ -618,6 +654,10 @@ ADMIN_HTML = """<!DOCTYPE html>
   .layout-library-group:first-child { margin-top: 8px; }
   .layout-library-title { margin: 0 0 4px; color: #9ea6bc; font-size: .78rem; font-weight: 600;
                           letter-spacing: .03em; text-transform: uppercase; }
+  .advanced-diagnostics { margin-top: 14px; color: #9ea6bc; font-size: .84rem; }
+  .advanced-diagnostics summary { cursor: pointer; width: fit-content; }
+  .advanced-diagnostics .template-pills { margin: 8px 0 0; }
+  .diagnostic-run { padding: 5px 10px; font-size: .82rem; }
   .layout-live-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #63d986;
                      box-shadow: 0 0 0 2px rgba(99,217,134,.16); }
   .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
@@ -627,10 +667,10 @@ ADMIN_HTML = """<!DOCTYPE html>
            box-shadow: 0 18px 60px rgba(0,0,0,.65); }
   .modal-close { position: absolute; right: 12px; top: 10px; border: 0; background: transparent;
                  color: #cbd1e2; font-size: 1.6rem; cursor: pointer; }
-  #layout-preview-canvas { position: relative; width: 100%; aspect-ratio: 1366 / 360; margin-top: 12px;
+  #layout-preview-canvas { position: relative; width: 100%; aspect-ratio: 1366 / 380; margin-top: 12px;
                            background: #050508 center / cover no-repeat; border: 1px solid #5e6380; }
   #live-layout-panel { margin: 14px 0 24px; padding: 14px; border: 1px solid #30354b; border-radius: 10px; background: #141520; }
-  #live-layout-canvas { position: relative; width: min(720px,100%); aspect-ratio: 1366 / 360; margin-top: 10px;
+  #live-layout-canvas { position: relative; width: min(720px,100%); aspect-ratio: 1366 / 380; margin-top: 10px;
                          overflow: hidden; background: #050508 center / cover no-repeat; border: 1px solid #5e6380; }
   .marquee-card-image { position: absolute; object-fit: fill; }
   .neosd-placeholder { position: absolute; box-sizing: border-box; display: flex; flex-direction: column;
@@ -643,7 +683,7 @@ ADMIN_HTML = """<!DOCTYPE html>
                              letter-spacing: .08em; white-space: nowrap; }
   #layout-preview-canvas .layout-slot { pointer-events: none; }
   #custom-editor { margin-top: 14px; padding: 14px; border: 1px solid #30354b; border-radius: 10px; background: #11121b; }
-  #layout-canvas { position: relative; width: min(100%, 1000px); aspect-ratio: 1366 / 360;
+  #layout-canvas { position: relative; width: min(100%, 1000px); aspect-ratio: 1366 / 380;
                    margin-top: 12px; overflow: hidden; background: #050508 center / cover no-repeat;
                    border: 1px solid #5e6380; user-select: none; touch-action: none; }
   .layout-slot { position: absolute; box-sizing: border-box; border: 2px solid #31d7e9;
@@ -666,7 +706,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 <main>
 
 <section id="electrocoin-section" class="hidden">
-  <h2>Digital Marquee <span style="color:#888;font-weight:normal;font-size:0.7em">(1366 × 360)</span></h2>
+  <h2>Digital Marquee <span style="color:#888;font-weight:normal;font-size:0.7em">(1366 × 380)</span></h2>
   <section id="live-layout-panel"><h3 class="subheading" style="margin-top:0">On display</h3>
     <p id="live-layout-name" class="hint">Loading current layout…</p><div id="live-layout-canvas" aria-label="Current digital marquee preview"></div>
   </section>
@@ -674,6 +714,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   <p class="hint">Choose a saved layout, or create a new one. Layouts contain only the background and mini-marquee positions.</p>
   <div class="layout-library-group"><p class="layout-library-title">Built-in templates</p><div id="eco-builtins" class="template-pills" role="radiogroup" aria-label="Built-in marquee templates"></div></div>
   <div class="layout-library-group"><p class="layout-library-title">Your layouts</p><div id="eco-customs" class="template-pills" role="radiogroup" aria-label="Your marquee layouts"></div></div>
+  <details class="advanced-diagnostics"><summary>Advanced diagnostics</summary><p class="hint" style="margin:8px 0 0">Tools for measuring or troubleshooting an unusual display.</p><div id="eco-diagnostics" class="template-pills" role="radiogroup" aria-label="Advanced display diagnostics"></div></details>
   <div id="custom-editor" class="hidden">
     <p class="hint">Choose either an image or a solid colour background, then position the mini-marquee objects over it. Slot labels are editing guides only.</p>
     <div class="cal-row"><input id="custom-file" type="file" accept="image/png,image/jpeg"><select id="custom-fit"><option value="cover">Fill canvas (crop edges)</option><option value="contain">Fit canvas (black bars if needed)</option></select><button id="custom-upload" class="btn">Upload image</button></div>
@@ -709,7 +750,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 </div>
 <div id="layout-preview-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="layout-preview-title">
   <div class="modal" id="layout-preview-dialog"><button class="modal-close" id="layout-preview-close" aria-label="Close">×</button>
-    <h2 id="layout-preview-title">Layout preview</h2><p class="hint">Saved card assignments are shown here. NeoSD Pro shows its current game when available, otherwise a live-marquee placeholder.</p><div id="layout-preview-canvas"></div>
+    <h2 id="layout-preview-title">Layout preview</h2><p id="layout-preview-hint" class="hint">Saved card assignments are shown here. NeoSD Pro shows its current game when available, otherwise a live-marquee placeholder.</p><div id="layout-preview-canvas"></div>
   </div>
 </div>
 
@@ -845,10 +886,11 @@ drop.ondrop = e => { e.preventDefault(); drop.classList.remove('hot');
                      upload(e.dataTransfer.files); };
 refresh();
 
-const ECO_DEFAULT_WINDOWS=[[65,48,176,230],[442,48,178,230],[752,48,174,230],[1125,48,176,230]];
+const ECO_WIDTH=1366, ECO_HEIGHT=380;
+const ECO_DEFAULT_WINDOWS=[[65,51,176,243],[442,51,178,243],[752,51,174,243],[1125,51,176,243]];
 const ECO_SLOT_RATIO=176/230, ECO_SLOT_COUNTS=[1,2,4,6];
 let ecoConfig=null, ecoFiles=[], ecoTitles={}, editingLayout=false, editingLayoutId=null, layoutDraft={base:'',background_type:'image',background_color:'#000000',windows:[]}, layoutDraftDirty=false, nameModalMode='create', uniformSlots=false, uniformLeader=0;
-let ecoLiveShort=null, ecoLiveEvents=null;
+let ecoLiveShort=null, ecoLiveEvents=null, layoutSelectionRequest=0;
 const blankCard=()=>({source:'blank',art:''});
 
 function selectedLayout() {
@@ -867,8 +909,8 @@ function layoutBackgroundPath(layout) {
   return layout.base_source === 'builtin' ? '/art/' : '/base/';
 }
 function positionMiniMarquee(element, slot) {
-  element.style.left=(slot[0]/1366*100)+'%'; element.style.top=(slot[1]/360*100)+'%';
-  element.style.width=(slot[2]/1366*100)+'%'; element.style.height=(slot[3]/360*100)+'%';
+  element.style.left=(slot[0]/ECO_WIDTH*100)+'%'; element.style.top=(slot[1]/ECO_HEIGHT*100)+'%';
+  element.style.width=(slot[2]/ECO_WIDTH*100)+'%'; element.style.height=(slot[3]/ECO_HEIGHT*100)+'%';
 }
 function appendMiniMarquee(canvas, card, slot, liveShort) {
   if (!card || !slot || card.source==='blank') return false;
@@ -889,8 +931,9 @@ function renderLivePreview() {
   if (!layout) { canvas.innerHTML=''; name.textContent='No live layout is available.'; return; }
   const image=layout.background_type!=='color', path=layoutBackgroundPath(layout);
   canvas.innerHTML=''; canvas.style.backgroundImage=image?'url('+path+encodeURIComponent(layout.base)+')':'none'; canvas.style.backgroundColor=image?'#050508':(layout.background_color||'#000000');
-  name.textContent='Currently showing: '+layout.name+(ecoLiveShort ? ' · NeoSD Pro: '+(ecoTitles[ecoLiveShort]||ecoLiveShort) : '');
-  (ecoConfig.cards||[]).forEach((card,index)=>appendMiniMarquee(canvas,card,layout.windows[index],ecoLiveShort));
+  const diagnostic=!!layout.diagnostic;
+  name.textContent='Currently showing: '+layout.name+(diagnostic ? '.' : (ecoLiveShort ? ' · NeoSD Pro: '+(ecoTitles[ecoLiveShort]||ecoLiveShort) : ''));
+  if (!diagnostic) (ecoConfig.cards||[]).forEach((card,index)=>appendMiniMarquee(canvas,card,layout.windows[index],ecoLiveShort));
 }
 function startEcoLiveUpdates() {
   if (ecoLiveEvents) return;
@@ -972,8 +1015,8 @@ function renderCustomEditor() {
   });
   layoutDraft.windows.forEach((slot, index) => {
     const el=document.createElement('div'); el.className='layout-slot';
-    el.style.left=(slot[0]/1366*100)+'%'; el.style.top=(slot[1]/360*100)+'%';
-    el.style.width=(slot[2]/1366*100)+'%'; el.style.height=(slot[3]/360*100)+'%';
+    el.style.left=(slot[0]/ECO_WIDTH*100)+'%'; el.style.top=(slot[1]/ECO_HEIGHT*100)+'%';
+    el.style.width=(slot[2]/ECO_WIDTH*100)+'%'; el.style.height=(slot[3]/ECO_HEIGHT*100)+'%';
     el.textContent='Slot '+(index+1);
     if (!uniform.checked || index===uniformLeader) {
       const handle=document.createElement('span'); handle.className='slot-resize'; handle.title='Resize slot';
@@ -991,7 +1034,7 @@ function updateEditorActions() {
   saving.disabled=editing ? !layoutDraftDirty : !draftIsValid();
 }
 function defaultSlots(count) {
-  const h=count>=6?190:count>=4?220:230, w=Math.round(h*ECO_SLOT_RATIO), gap=(1366-count*w)/(count+1), y=Math.round((360-h)/2);
+  const h=count>=6?190:count>=4?220:230, w=Math.round(h*ECO_SLOT_RATIO), gap=(ECO_WIDTH-count*w)/(count+1), y=Math.round((ECO_HEIGHT-h)/2);
   return Array.from({length:count},(_,i)=>[Math.round(gap+(w+gap)*i),y,w,h]);
 }
 function setSlotCount(count) {
@@ -1003,25 +1046,25 @@ function setSlotCount(count) {
   layoutDraftDirty=true; renderCustomEditor();
 }
 function clampSlotSize(slot,w,h) {
-  return [Math.max(0,Math.min(1366-w,slot[0])),Math.max(0,Math.min(360-h,slot[1])),w,h];
+  return [Math.max(0,Math.min(ECO_WIDTH-w,slot[0])),Math.max(0,Math.min(ECO_HEIGHT-h,slot[1])),w,h];
 }
 function applyUniformSize() {
   const lead=layoutDraft.windows[uniformLeader]; if (!lead) return;
   layoutDraft.windows=layoutDraft.windows.map(slot=>clampSlotSize(slot,lead[2],lead[3]));
 }
 function placeSlotElement(el, slot) {
-  el.style.left=(slot[0]/1366*100)+'%'; el.style.top=(slot[1]/360*100)+'%';
-  el.style.width=(slot[2]/1366*100)+'%'; el.style.height=(slot[3]/360*100)+'%';
+  el.style.left=(slot[0]/ECO_WIDTH*100)+'%'; el.style.top=(slot[1]/ECO_HEIGHT*100)+'%';
+  el.style.width=(slot[2]/ECO_WIDTH*100)+'%'; el.style.height=(slot[3]/ECO_HEIGHT*100)+'%';
 }
 function startSlotDrag(event, index, mode) {
   event.preventDefault(); event.stopPropagation();
   const canvas=document.getElementById('layout-canvas'), bounds=canvas.getBoundingClientRect(), start=[...layoutDraft.windows[index]], x0=event.clientX, y0=event.clientY; let moved=false;
   const slotElement=canvas.children[index];
   const move=e=>{
-    const dx=(e.clientX-x0)*1366/bounds.width, dy=(e.clientY-y0)*360/bounds.height;
+    const dx=(e.clientX-x0)*ECO_WIDTH/bounds.width, dy=(e.clientY-y0)*ECO_HEIGHT/bounds.height;
     let [x,y,w,h]=start;
-    if (mode === 'move') { x=Math.max(0,Math.min(1366-w,Math.round(x+dx))); y=Math.max(0,Math.min(360-h,Math.round(y+dy))); }
-    else { w=Math.max(60,Math.min(1366-x,(360-y)*ECO_SLOT_RATIO,Math.round(w+dx))); h=Math.round(w/ECO_SLOT_RATIO); }
+    if (mode === 'move') { x=Math.max(0,Math.min(ECO_WIDTH-w,Math.round(x+dx))); y=Math.max(0,Math.min(ECO_HEIGHT-h,Math.round(y+dy))); }
+    else { w=Math.max(60,Math.min(ECO_WIDTH-x,(ECO_HEIGHT-y)*ECO_SLOT_RATIO,Math.round(w+dx))); h=Math.round(w/ECO_SLOT_RATIO); }
     moved = moved || x!==start[0] || y!==start[1] || w!==start[2] || h!==start[3]; layoutDraft.windows[index]=[x,y,w,h];
     if (mode==='resize' && uniformSlots) applyUniformSize();
     // Move the existing overlay rather than rebuilding the canvas. Rebuilding
@@ -1034,7 +1077,7 @@ function startSlotDrag(event, index, mode) {
   window.addEventListener('pointermove',move); window.addEventListener('pointerup',end);
 }
 function renderBasePills() {
-  const builtins=document.getElementById('eco-builtins'), customs=document.getElementById('eco-customs'); builtins.innerHTML=''; customs.innerHTML='';
+  const builtins=document.getElementById('eco-builtins'), customs=document.getElementById('eco-customs'), diagnostics=document.getElementById('eco-diagnostics'); builtins.innerHTML=''; customs.innerHTML=''; diagnostics.innerHTML='';
   const add=(base, layout, disabled=false) => {
     const ident=layout.id, label=layout.name;
     const choice=document.createElement('div'); choice.className='layout-choice';
@@ -1052,6 +1095,10 @@ function renderBasePills() {
     if (!disabled && ident !== 'create') {
       const preview=document.createElement('button'); preview.type='button'; preview.className='layout-icon'; preview.textContent='👁'; preview.title='Preview '+label; preview.setAttribute('aria-label',preview.title);
       preview.onclick=e=>{e.stopPropagation(); previewLayout(layout);}; choice.appendChild(preview);
+      if (ident==='viewport-test') {
+        const run=document.createElement('button'); run.type='button'; run.className='btn diagnostic-run'; run.textContent='Run on display';
+        run.onclick=async e=>{e.stopPropagation(); await sendLayoutToDisplay(ident);}; choice.appendChild(run);
+      }
       if (ident.startsWith('custom-')) {
         const edit=document.createElement('button'); edit.type='button'; edit.className='layout-icon'; edit.textContent='✎'; edit.title='Edit '+label; edit.setAttribute('aria-label',edit.title);
         edit.onclick=e=>{e.stopPropagation(); editLayout(layout);}; choice.appendChild(edit);
@@ -1061,9 +1108,10 @@ function renderBasePills() {
   };
   const liveFirst=items=>items.slice().sort((a,b)=>(b.id===ecoConfig.layout_id)-(a.id===ecoConfig.layout_id));
   const layouts=ecoConfig.layouts || [];
-  liveFirst(layouts.filter(layout=>layout.base_source==='builtin')).forEach(layout=>add(builtins,layout));
+  liveFirst(layouts.filter(layout=>layout.base_source==='builtin' && layout.id!=='viewport-test')).forEach(layout=>add(builtins,layout));
   ['Neo Geo 6 Slot','Neo Geo 4 Slot','Neo Geo 2 Slot'].forEach(name=>add(builtins,{id:'coming-'+name,name:name+' · coming soon'},true));
   liveFirst(layouts.filter(layout=>layout.base_source!=='builtin')).forEach(layout=>add(customs,layout));
+  liveFirst(layouts.filter(layout=>layout.id==='viewport-test')).forEach(layout=>add(diagnostics,layout));
   add(customs,{id:'create',name:'+ Create custom layout'});
 }
 async function uploadCustomBase() {
@@ -1139,7 +1187,7 @@ async function validateAiKey() {
   button.disabled=false; button.textContent='Validate key';
 }
 function marqueeAiPrompt(request) {
-  return 'Create a background-only digital arcade marquee design. The final physical canvas is exactly 1366 by 360 pixels, an ultra-wide 3.794:1 landscape. Compose important artwork safely within this very wide ratio; the app will crop or fit the returned image to 1366 × 360. Leave uncluttered space for mini-marquee game cards which will be placed later. Do not include readable text, game titles, logos, slot frames, UI, controls, or characters that overlap the card areas. High-quality arcade cabinet artwork. Design request: ' + request.trim();
+  return 'Create a background-only digital arcade marquee design. The final physical canvas is exactly 1366 by 380 pixels, an ultra-wide 3.595:1 landscape. Compose important artwork safely within this very wide ratio; the app will crop or fit the returned image to 1366 × 380. Leave uncluttered space for mini-marquee game cards which will be placed later. Do not include readable text, game titles, logos, slot frames, UI, controls, or characters that overlap the card areas. High-quality arcade cabinet artwork. Design request: ' + request.trim();
 }
 async function generateOpenAiImage(key, prompt, model) {
   const r=await fetch('https://api.openai.com/v1/images/generations',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,prompt,size:'1536x1024',quality:'medium',output_format:'png'})});
@@ -1188,8 +1236,17 @@ const rememberedAiProvider=readAiSettings().provider;
 if (rememberedAiProvider==='openai' || rememberedAiProvider==='gemini') document.getElementById('ai-provider').value=rememberedAiProvider;
 restoreAiKey();
 async function selectLayout(ident) {
+  // A library pill always leaves the editor. Do this before awaiting the
+  // server so normal layouts cannot briefly retain the editor's hidden
+  // assignment state; the sequence also makes rapid clicks deterministic.
+  const request=++layoutSelectionRequest;
+  editingLayout=false; editingLayoutId=null; layoutDraftDirty=false;
+  if (ecoConfig) ecoConfig.selected_layout_id=ident;
+  renderAll();
   const r=await fetch('/electrocoin/layout/select?id='+encodeURIComponent(ident),{method:'POST'});
-  if (!r.ok) { alert('Could not select that layout.'); return; } ecoConfig=await r.json(); editingLayout=false; renderAll();
+  if (request!==layoutSelectionRequest) return;
+  if (!r.ok) { alert('Could not select that layout.'); return; }
+  ecoConfig=await r.json(); editingLayout=false; renderAll();
 }
 function editLayout(layout) {
   editingLayout=true; editingLayoutId=layout.id;
@@ -1222,10 +1279,14 @@ async function confirmLayoutName() {
 function closePreviewModal() { document.getElementById('layout-preview-modal').classList.add('hidden'); }
 function previewLayout(layout) {
   document.getElementById('layout-preview-title').textContent=layout.name;
+  document.getElementById('layout-preview-hint').textContent=layout.id==='viewport-test'
+    ? 'This diagnostic renders coloured bands from pixel rows 340–419. On the physical panel, note the final band visible before the lower bezel to measure the active viewport height.'
+    : 'Saved card assignments are shown here. NeoSD Pro shows its current game when available, otherwise a live-marquee placeholder.';
   const canvas=document.getElementById('layout-preview-canvas'); canvas.innerHTML='';
   const image=layout.background_type!=='color', path=layoutBackgroundPath(layout);
   canvas.style.backgroundImage=image?'url('+path+encodeURIComponent(layout.base)+')':'none'; canvas.style.backgroundColor=image?'#050508':(layout.background_color||'#000000');
   const cards=cardsForLayout(layout), liveShort=layout.id===ecoConfig.layout_id ? ecoLiveShort : null;
+  if (layout.id==='viewport-test') { document.getElementById('layout-preview-modal').classList.remove('hidden'); return; }
   layout.windows.forEach((slot,index)=>{
     if (appendMiniMarquee(canvas,cards[index],slot,liveShort)) return;
     const guide=document.createElement('div'); guide.className='layout-slot'; guide.textContent='Slot '+(index+1);
@@ -1263,9 +1324,14 @@ async function loadEco() {
 }
 function renderAll() {
   renderBasePills(); renderCustomEditor(); renderLivePreview();
-  const assignments=document.getElementById('eco-assignment-section'); assignments.classList.toggle('hidden',editingLayout);
+  const layout=selectedLayout(), isDiagnostic=layout && layout.diagnostic;
+  // Only the zero-slot diagnostic and the layout editor suppress this panel.
+  // Every selected cabinet/custom layout always has its assignments and send
+  // controls available, regardless of what was previously on display.
+  const showAssignments=!!layout && !editingLayout && !isDiagnostic;
+  const assignments=document.getElementById('eco-assignment-section'); assignments.classList.toggle('hidden',!showAssignments);
   if (!editingLayout) {
-    const layout=selectedLayout();
+    if (isDiagnostic) return;
     document.getElementById('eco-assignment-hint').textContent='Assign marquee art to “'+(layout?layout.name:'this layout')+'”. NeoSD Pro is the special live card.';
     document.getElementById('layout-delete').classList.toggle('hidden',!layout || !layout.id.startsWith('custom-')); renderCards();
     const send=document.getElementById('layout-send'), isLive=layout && layout.id===ecoConfig.layout_id;
@@ -1280,12 +1346,15 @@ async function saveCardAssignments() {
   ecoConfig=await r.json(); renderAll(); return true;
 }
 document.getElementById('eco-save').onclick=saveCardAssignments;
+async function sendLayoutToDisplay(ident) {
+  const r=await fetch('/electrocoin/layout/display?id='+encodeURIComponent(ident),{method:'POST'});
+  if (!r.ok) { alert('Could not send this layout to the display: '+await r.text()); return; }
+  ecoConfig=await r.json(); renderAll();
+}
 document.getElementById('layout-send').onclick=async()=>{
   const layout=selectedLayout(); if (!layout) return;
   if (!await saveCardAssignments()) return;
-  const r=await fetch('/electrocoin/layout/display?id='+encodeURIComponent(layout.id),{method:'POST'});
-  if (!r.ok) { alert('Could not send this layout to the display: '+await r.text()); return; }
-  ecoConfig=await r.json(); renderAll();
+  await sendLayoutToDisplay(layout.id);
 };
 loadEco();
 
@@ -1639,10 +1708,12 @@ class OverlayServer:
                 if existing is None:
                     ident = "custom-%d" % int(time.time() * 1000)
                     layouts.append({"id": ident, "name": name, "base": base, "background_type": background_type,
-                                    "background_color": background_color, "windows": parsed})
+                                    "background_color": background_color, "windows": parsed,
+                                    "canvas_height": ELECTROCOIN_CANVAS_HEIGHT})
                 else:
                     layouts[existing] = {"id": ident, "name": name, "base": base, "background_type": background_type,
-                                         "background_color": background_color, "windows": parsed}
+                                         "background_color": background_color, "windows": parsed,
+                                         "canvas_height": ELECTROCOIN_CANVAS_HEIGHT}
                 save_custom_layouts(layouts)
                 cfg = electro_config(server.display.electro_config)
                 if existing is None:
@@ -1891,6 +1962,10 @@ class Display:
         pygame.init()
         self.electrocoin = electrocoin
         self.headless = False
+        # A panel can take several seconds after power-on before KMS will
+        # accept a fullscreen surface.  Keep the web server alive in that
+        # case, then periodically try again from the main pygame thread.
+        self._headless_retry_at = 0.0
         try:
             pygame.mouse.set_visible(False)
             self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
@@ -1900,6 +1975,7 @@ class Display:
             # later service restart after reconnecting HDMI restores output.
             self.headless = True
             self.screen = pygame.Surface(ELECTROCOIN_BASE_SIZE if electrocoin else (1024, 768))
+            self._headless_retry_at = time.monotonic() + 2.0
             print("[MarqueeMark] no HDMI display (%s); running headless" % e)
         phys = self.screen.get_size()
 
@@ -1992,11 +2068,13 @@ class Display:
 
     def _electro_surface(self):
         surf = pygame.Surface(self.phys); surf.fill(BG)
-        vp = pygame.Rect(0, 0, self.phys[0], min(ELECTROCOIN_VIEWPORT_HEIGHT, self.phys[1]))
+        diagnostic = BUILTIN_LAYOUTS.get(self.electro_config.get("layout_id"), {})
+        source_height = diagnostic.get("viewport_height", ELECTROCOIN_VIEWPORT_HEIGHT)
+        vp = pygame.Rect(0, 0, self.phys[0], min(source_height, self.phys[1]))
         if self.electro_config.get("background_type") == "color": surf.fill(_colour_rgb(self.electro_config.get("background_color")), vp)
         base = self._electro_base()
         if base: surf.blit(pygame.transform.smoothscale(base, vp.size), vp)
-        sx, sy = vp.w / 1366, vp.h / 360
+        sx, sy = vp.w / ELECTROCOIN_CANVAS_WIDTH, vp.h / source_height
         for r, card in zip(self.electro_config["windows"], self.electro_config["cards"]):
             target = pygame.Rect(round(r[0]*sx), round(r[1]*sy), round(r[2]*sx), round(r[3]*sy))
             stem = self.electro_neosd["short"] if card["source"] == "neosd" and self.electro_neosd else card["art"] if card["source"] == "fixed" else ""
@@ -2118,8 +2196,41 @@ class Display:
         self.wake_count += 1
         print("[MarqueeMark] display awake")
 
+    def _retry_headless_display(self):
+        """Re-acquire HDMI after a slow panel has finished starting up.
+
+        This is intentionally called from pump(), which runs on pygame's
+        main thread.  A browser-admin process may run with no HDMI at all;
+        retries remain quiet until a real display becomes available.
+        """
+        if not self.headless or self.manual_sleep:
+            return
+        now = time.monotonic()
+        if now < self._headless_retry_at:
+            return
+        self._headless_retry_at = now + 2.0
+        try:
+            pygame.display.init()
+            pygame.mouse.set_visible(False)
+            screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        except pygame.error:
+            return
+
+        self.screen = screen
+        self.headless = False
+        self.phys = screen.get_size()
+        if not self.electrocoin:
+            self.size = (self.phys[1], self.phys[0]) \
+                if self.rotate in (90, 270) else self.phys
+        self.current = None
+        self.wake_count += 1
+        print("[MarqueeMark] HDMI display detected; output restored")
+
     def pump(self):
-        if self.screen is None or self.headless:  # asleep/headless — nothing to pump
+        if self.headless:
+            self._retry_headless_display()
+            return True
+        if self.screen is None:  # asleep — nothing to pump
             return True
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
