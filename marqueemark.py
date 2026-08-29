@@ -121,14 +121,18 @@ BUILTIN_LAYOUTS = {
 
 DISPLAY_MODES = ("mini", "ultrawide")
 
-def load_display_mode(default="mini"):
-    """Read the user's persisted active display type, without credentials."""
+def saved_display_mode():
+    """Return the explicit Pi-side display choice, or None before setup."""
     try:
         with open(DISPLAY_MODE_PATH) as f:
             mode = json.load(f).get("mode")
-        return mode if mode in DISPLAY_MODES else default
+        return mode if mode in DISPLAY_MODES else None
     except (OSError, ValueError, AttributeError):
-        return default
+        return None
+
+def load_display_mode(default="mini"):
+    """Read the user's persisted active display type, without credentials."""
+    return saved_display_mode() or default
 
 def save_display_mode(mode):
     if mode not in DISPLAY_MODES:
@@ -608,6 +612,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   body { margin: 0; font-family: system-ui, sans-serif; background: #101018;
          color: #e8e8f0; }
   header { padding: 16px 24px; background: #1a1a28; border-bottom: 2px solid #c8102e; }
+  .header-row { max-width: 1100px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
   h1 { margin: 0; font-size: 1.2rem; letter-spacing: 0.04em; }
   h1 span { color: #c8102e; }
   main { padding: 24px; max-width: 1100px; margin: 0 auto; }
@@ -624,9 +629,8 @@ ADMIN_HTML = """<!DOCTYPE html>
   .btn.danger { background: #4a1e1e; border-color: #6a2a2a; color: #fca; }
   .btn.danger:hover { background: #5a2424; }
   .hidden { display: none !important; }
-  .display-choice { padding: 16px; margin-bottom: 20px; border: 1px solid #30354b;
-                    border-radius: 10px; background: #141520; }
-  .display-choice h2 { color: #e8e8f0; margin-bottom: 6px; }
+  .display-mode-button { white-space: nowrap; padding: 6px 10px; font-size: .78rem; }
+  .display-mode-button .mode-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #63d986; margin-right: 6px; }
   .mode-options, .admin-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
   .mode-option { min-width: 160px; text-align: left; padding: 10px 13px; border: 1px solid #30354b;
                  border-radius: 8px; background: #171a26; color: #9399aa; cursor: pointer; }
@@ -734,19 +738,11 @@ ADMIN_HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<header><h1>Marquee<span>Mark</span> — Admin
-  <small style="color:#888;font-weight:normal;font-size:0.7em">v{{VERSION}}</small></h1></header>
+<header><div class="header-row"><h1>Marquee<span>Mark</span> — Admin
+  <small style="color:#888;font-weight:normal;font-size:0.7em">v{{VERSION}}</small></h1>
+  <button id="display-mode-change" type="button" class="btn display-mode-button"><span class="mode-dot"></span><span id="display-mode-summary">Active display</span> · Change…</button>
+</div></header>
 <main>
-
-<section class="display-choice">
-  <h2>What display do you have?</h2>
-  <p class="hint">Choose the display MarqueeMark should drive. Both Admin areas remain available to explore and configure.</p>
-  <div class="mode-options" role="radiogroup" aria-label="Active display type">
-    <button type="button" class="mode-option" data-display-mode="mini" role="radio"><strong>Mini Marquee</strong><small>Original portrait marquee artwork and calibration</small></button>
-    <button type="button" class="mode-option" data-display-mode="ultrawide" role="radio"><strong>Ultrawide Marquee</strong><small>Wide layouts with one or more mini-marquee cards</small></button>
-  </div>
-  <p id="display-mode-status" class="hint" style="margin:10px 0 0"></p>
-</section>
 
 <nav class="admin-tabs" aria-label="Marquee administration">
   <button type="button" class="admin-tab-button" data-admin-tab="mini">Mini Marquee</button>
@@ -801,6 +797,24 @@ ADMIN_HTML = """<!DOCTYPE html>
 <div id="layout-preview-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="layout-preview-title">
   <div class="modal" id="layout-preview-dialog"><button class="modal-close" id="layout-preview-close" aria-label="Close">×</button>
     <h2 id="layout-preview-title">Layout preview</h2><p id="layout-preview-hint" class="hint">Saved card assignments are shown here. NeoSD Pro shows its current game when available, otherwise a live-marquee placeholder.</p><div id="layout-preview-canvas"></div>
+  </div>
+</div>
+<div id="display-mode-warning-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="display-mode-warning-title">
+  <div class="modal"><button class="modal-close" id="display-mode-warning-close" aria-label="Close">×</button>
+    <h2 id="display-mode-warning-title">Change active display?</h2>
+    <p class="hint">You are about to change the renderer driving HDMI. Make sure the intended Mini Marquee or Ultrawide Marquee display is connected. Your artwork and layout settings will be retained.</p>
+    <div class="cal-actions"><button id="display-mode-warning-continue" class="btn primary">Continue</button><button id="display-mode-warning-cancel" class="btn">Cancel</button></div>
+  </div>
+</div>
+<div id="display-mode-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="display-mode-title">
+  <div class="modal"><button class="modal-close" id="display-mode-close" aria-label="Close">×</button>
+    <h2 id="display-mode-title">Display hardware setup</h2><p id="display-mode-intro" class="hint"></p>
+    <div class="mode-options" role="radiogroup" aria-label="Active display type">
+      <button type="button" class="mode-option" data-display-mode="mini" role="radio"><strong>Mini Marquee</strong><small>Original portrait marquee artwork and calibration</small></button>
+      <button type="button" class="mode-option" data-display-mode="ultrawide" role="radio"><strong>Ultrawide Marquee</strong><small>Wide layouts with one or more mini-marquee cards</small></button>
+    </div>
+    <p id="display-mode-current" class="hint" style="margin:12px 0 0"></p>
+    <div class="cal-actions"><button id="display-mode-apply" class="btn primary">Save and activate</button><button id="display-mode-cancel" class="btn">Cancel</button></div>
   </div>
 </div>
 
@@ -1416,7 +1430,7 @@ loadEco();
 const sel = document.getElementById('sel');
 const selNow = document.getElementById('sel-now');
 const pwrNow = document.getElementById('pwr-now');
-let isManual = false, activeDisplayMode = 'mini';
+let isManual = false, activeDisplayMode = 'mini', pendingDisplayMode = 'mini', displayModeConfigured = false, firstSetupPrompted = false;
 const ADMIN_TAB_KEY='marqueemark-admin-tab';
 const savedAdminTab=localStorage.getItem(ADMIN_TAB_KEY);
 let hasSavedAdminTab=!!savedAdminTab;
@@ -1433,25 +1447,52 @@ function setAdminTab(tab, remember=true) {
 document.querySelectorAll('[data-admin-tab]').forEach(button=>button.onclick=()=>setAdminTab(button.dataset.adminTab));
 setAdminTab(savedAdminTab || 'mini', !!savedAdminTab);
 
+function displayModeName(mode) { return mode==='ultrawide'?'Ultrawide Marquee':'Mini Marquee'; }
 function renderDisplayMode() {
   document.querySelectorAll('[data-display-mode]').forEach(button=>{
-    const selected=button.dataset.displayMode===activeDisplayMode;
+    const selected=button.dataset.displayMode===pendingDisplayMode;
     button.classList.toggle('selected',selected); button.setAttribute('aria-checked',selected);
   });
-  document.getElementById('display-mode-status').textContent='Currently driving: '+(activeDisplayMode==='ultrawide'?'Ultrawide Marquee.':'Mini Marquee.');
+  document.getElementById('display-mode-summary').textContent='Active: '+displayModeName(activeDisplayMode);
+  document.getElementById('display-mode-current').textContent='Currently driving: '+displayModeName(activeDisplayMode)+'.';
+  document.getElementById('display-mode-apply').disabled=!pendingDisplayMode || (displayModeConfigured && pendingDisplayMode===activeDisplayMode);
   if (ecoConfig) renderAll();
 }
-document.querySelectorAll('[data-display-mode]').forEach(button=>button.onclick=async()=>{
-  const mode=button.dataset.displayMode;
-  if (mode===activeDisplayMode) return;
-  button.disabled=true;
-  try {
-    const response=await fetch('/display/mode?layout='+encodeURIComponent(mode),{method:'POST'});
-    if (!response.ok) throw new Error(await response.text());
-    activeDisplayMode=mode; renderDisplayMode();
-  } catch (error) { alert('Could not switch display mode: '+error.message); }
-  finally { button.disabled=false; }
+function closeDisplayModeWarning() { document.getElementById('display-mode-warning-modal').classList.add('hidden'); }
+function closeDisplayModeSetup() { document.getElementById('display-mode-modal').classList.add('hidden'); }
+function dismissDisplayModeSetup() {
+  if (!displayModeConfigured) sessionStorage.setItem('marqueemark-display-setup-dismissed','1');
+  closeDisplayModeSetup();
+}
+function openDisplayModeSetup(firstVisit=false) {
+  pendingDisplayMode=activeDisplayMode;
+  document.getElementById('display-mode-title').textContent=firstVisit?'Which display do you have?':'Display hardware setup';
+  document.getElementById('display-mode-intro').textContent=firstVisit
+    ? 'Before MarqueeMark drives the panel, choose the connected display. This setting is saved on this Pi, not in your browser.'
+    : 'Choose which connected display MarqueeMark should drive. This setting is saved on the Pi, not in this browser.';
+  document.getElementById('display-mode-cancel').textContent=firstVisit?'Set up later':'Cancel';
+  document.getElementById('display-mode-modal').classList.remove('hidden'); renderDisplayMode();
+}
+document.querySelectorAll('[data-display-mode]').forEach(button=>button.onclick=()=>{
+  pendingDisplayMode=button.dataset.displayMode; renderDisplayMode();
 });
+document.getElementById('display-mode-change').onclick=()=>document.getElementById('display-mode-warning-modal').classList.remove('hidden');
+document.getElementById('display-mode-warning-cancel').onclick=closeDisplayModeWarning;
+document.getElementById('display-mode-warning-close').onclick=closeDisplayModeWarning;
+document.getElementById('display-mode-warning-continue').onclick=()=>{closeDisplayModeWarning(); openDisplayModeSetup(false);};
+document.getElementById('display-mode-close').onclick=dismissDisplayModeSetup;
+document.getElementById('display-mode-cancel').onclick=dismissDisplayModeSetup;
+document.getElementById('display-mode-warning-modal').onclick=e=>{if(e.target===e.currentTarget)closeDisplayModeWarning();};
+document.getElementById('display-mode-modal').onclick=e=>{if(e.target===e.currentTarget)dismissDisplayModeSetup();};
+document.getElementById('display-mode-apply').onclick=async()=>{
+  const button=document.getElementById('display-mode-apply'); button.disabled=true;
+  try {
+    const response=await fetch('/display/mode?layout='+encodeURIComponent(pendingDisplayMode),{method:'POST'});
+    if (!response.ok) throw new Error(await response.text());
+    activeDisplayMode=pendingDisplayMode; displayModeConfigured=true; closeDisplayModeSetup(); renderDisplayMode();
+  } catch (error) { alert('Could not save display mode: '+error.message); }
+  finally { button.disabled=false; }
+};
 
 let selListCache = [];  // last-known art list, so we only rebuild the
                         // <select> when it actually changes
@@ -1461,8 +1502,12 @@ async function refreshMode() {
   try { m = await (await fetch('/mode')).json(); } catch (_) { return; }
   isManual = !!m.manual;
   activeDisplayMode=m.layout==='ultrawide'?'ultrawide':'mini';
+  displayModeConfigured=!!m.layout_configured;
   if (!hasSavedAdminTab) setAdminTab(activeDisplayMode, false);
   renderDisplayMode();
+  if (!displayModeConfigured && !firstSetupPrompted && !sessionStorage.getItem('marqueemark-display-setup-dismissed')) {
+    firstSetupPrompted=true; openDisplayModeSetup(true);
+  }
   document.getElementById('sec-showing').classList.toggle('hidden', !isManual);
   pwrNow.textContent = m.asleep
     ? (m.manual_sleep ? 'asleep (by hand)' : 'asleep')
@@ -1660,6 +1705,7 @@ class OverlayServer:
                     self._send(200, "application/json", json.dumps({
                         "manual": bool(getattr(server, "manual", False)),
                         "layout": server.display.layout_mode,
+                        "layout_configured": saved_display_mode() is not None,
                         "asleep": server.display.screen is None,
                         "manual_sleep": server.display.manual_sleep,
                     }).encode())
