@@ -175,7 +175,22 @@ if [ -n "$EXTRA_ARGS" ]; then
   RUN_ARGS="$EXTRA_ARGS"
   say "Keeping your existing options: $RUN_ARGS"
 else
-  RUN_ARGS="--rotate $ROTATE"
+  DISPLAY_LAYOUT="mini"
+  if [ -t 0 ]; then
+    echo
+    echo "Which display are you configuring?"
+    echo "  1) Mini Marquee (original portrait display)"
+    echo "  2) Ultrawide Marquee (wide digital display)"
+    read -r -p "Choose 1 or 2 [1]: " DISPLAY_CHOICE
+    case "$DISPLAY_CHOICE" in
+      2) DISPLAY_LAYOUT="ultrawide" ;;
+      *) DISPLAY_LAYOUT="mini" ;;
+    esac
+  else
+    echo "  non-interactive install: defaulting to Mini Marquee"
+    echo "  (change later from Admin, or use --layout ultrawide in the service)"
+  fi
+  RUN_ARGS="--rotate $ROTATE --layout $DISPLAY_LAYOUT"
 fi
 
 # ---------------------------------------------------------------- service
