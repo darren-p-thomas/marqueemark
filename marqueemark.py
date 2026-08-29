@@ -641,6 +641,9 @@ ADMIN_HTML = """<!DOCTYPE html>
   .layout-library-group:first-child { margin-top: 8px; }
   .layout-library-title { margin: 0 0 4px; color: #9ea6bc; font-size: .78rem; font-weight: 600;
                           letter-spacing: .03em; text-transform: uppercase; }
+  .advanced-diagnostics { margin-top: 14px; color: #9ea6bc; font-size: .84rem; }
+  .advanced-diagnostics summary { cursor: pointer; width: fit-content; }
+  .advanced-diagnostics .template-pills { margin: 8px 0 0; }
   .layout-live-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #63d986;
                      box-shadow: 0 0 0 2px rgba(99,217,134,.16); }
   .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
@@ -697,6 +700,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   <p class="hint">Choose a saved layout, or create a new one. Layouts contain only the background and mini-marquee positions.</p>
   <div class="layout-library-group"><p class="layout-library-title">Built-in templates</p><div id="eco-builtins" class="template-pills" role="radiogroup" aria-label="Built-in marquee templates"></div></div>
   <div class="layout-library-group"><p class="layout-library-title">Your layouts</p><div id="eco-customs" class="template-pills" role="radiogroup" aria-label="Your marquee layouts"></div></div>
+  <details class="advanced-diagnostics"><summary>Advanced diagnostics</summary><p class="hint" style="margin:8px 0 0">Tools for measuring or troubleshooting an unusual display.</p><div id="eco-diagnostics" class="template-pills" role="radiogroup" aria-label="Advanced display diagnostics"></div></details>
   <div id="custom-editor" class="hidden">
     <p class="hint">Choose either an image or a solid colour background, then position the mini-marquee objects over it. Slot labels are editing guides only.</p>
     <div class="cal-row"><input id="custom-file" type="file" accept="image/png,image/jpeg"><select id="custom-fit"><option value="cover">Fill canvas (crop edges)</option><option value="contain">Fit canvas (black bars if needed)</option></select><button id="custom-upload" class="btn">Upload image</button></div>
@@ -1058,7 +1062,7 @@ function startSlotDrag(event, index, mode) {
   window.addEventListener('pointermove',move); window.addEventListener('pointerup',end);
 }
 function renderBasePills() {
-  const builtins=document.getElementById('eco-builtins'), customs=document.getElementById('eco-customs'); builtins.innerHTML=''; customs.innerHTML='';
+  const builtins=document.getElementById('eco-builtins'), customs=document.getElementById('eco-customs'), diagnostics=document.getElementById('eco-diagnostics'); builtins.innerHTML=''; customs.innerHTML=''; diagnostics.innerHTML='';
   const add=(base, layout, disabled=false) => {
     const ident=layout.id, label=layout.name;
     const choice=document.createElement('div'); choice.className='layout-choice';
@@ -1085,9 +1089,10 @@ function renderBasePills() {
   };
   const liveFirst=items=>items.slice().sort((a,b)=>(b.id===ecoConfig.layout_id)-(a.id===ecoConfig.layout_id));
   const layouts=ecoConfig.layouts || [];
-  liveFirst(layouts.filter(layout=>layout.base_source==='builtin')).forEach(layout=>add(builtins,layout));
+  liveFirst(layouts.filter(layout=>layout.base_source==='builtin' && layout.id!=='viewport-test')).forEach(layout=>add(builtins,layout));
   ['Neo Geo 6 Slot','Neo Geo 4 Slot','Neo Geo 2 Slot'].forEach(name=>add(builtins,{id:'coming-'+name,name:name+' · coming soon'},true));
   liveFirst(layouts.filter(layout=>layout.base_source!=='builtin')).forEach(layout=>add(customs,layout));
+  liveFirst(layouts.filter(layout=>layout.id==='viewport-test')).forEach(layout=>add(diagnostics,layout));
   add(customs,{id:'create',name:'+ Create custom layout'});
 }
 async function uploadCustomBase() {
