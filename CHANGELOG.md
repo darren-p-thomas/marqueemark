@@ -3,6 +3,16 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.5-layout-modes.2 — Electrocoin four-slot refresh
+
+- Replaced the provided **Electrocoin 4 Slot** Ultrawide template with a new
+  1366 × 380 artwork treatment: four framed portrait-card windows, authentic
+  Electrocoin lower labels and matching side speaker grilles.
+- Kept the original legacy artwork file in place so existing saved layouts
+  continue to render as they were configured.
+- Removed the display-only NeoSD Pro cyan/red emphasis outline so physical
+  HDMI output matches the Admin preview.
+
 ## v1.3.5-layout-modes.1 — Mini and Ultrawide Marquee modes
 
 - Split the Admin experience into always-available **Mini Marquee** and

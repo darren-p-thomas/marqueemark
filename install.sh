@@ -129,6 +129,7 @@ install_builtin_base() {
 }
 say "Installing built-in marquee templates"
 install_builtin_base "electrocoin-base.png"
+install_builtin_base "electrocoin-alt-9.png"
 install_builtin_base "neogeo-one-slot.png"
 install_builtin_base "ultrawide-viewport-test.png"
 

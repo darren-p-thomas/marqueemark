@@ -102,10 +102,10 @@ Once a layout is selected, its separate card-assignment controls appear
 underneath. Deleting a layout that is currently on display safely returns the
 cabinet to the built-in Electrocoin layout after confirmation.
 
-The built-in template library currently includes **Electrocoin 4 Slot** and
-**Neo Geo one-slot**. The one-slot design uses its original black “Now
-Featuring” window for the generated mini marquee. Neo Geo two-, four-, and
-six-slot templates remain planned.
+The built-in template library includes **Electrocoin 4 Slot** (with the
+Electrocoin-style speaker grilles and four framed card windows), plus **Neo
+Geo one-, two-, four-, and six-slot** templates. The one-slot design uses its
+original black “Now Featuring” window for the generated mini marquee.
 
 MarqueeMark's Admin page also works with HDMI disconnected, so layouts can be
 created and managed while the cabinet is powered down. Reconnect the display
