@@ -644,6 +644,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   .advanced-diagnostics { margin-top: 14px; color: #9ea6bc; font-size: .84rem; }
   .advanced-diagnostics summary { cursor: pointer; width: fit-content; }
   .advanced-diagnostics .template-pills { margin: 8px 0 0; }
+  .diagnostic-run { padding: 5px 10px; font-size: .82rem; }
   .layout-live-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #63d986;
                      box-shadow: 0 0 0 2px rgba(99,217,134,.16); }
   .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
@@ -1080,6 +1081,10 @@ function renderBasePills() {
     if (!disabled && ident !== 'create') {
       const preview=document.createElement('button'); preview.type='button'; preview.className='layout-icon'; preview.textContent='👁'; preview.title='Preview '+label; preview.setAttribute('aria-label',preview.title);
       preview.onclick=e=>{e.stopPropagation(); previewLayout(layout);}; choice.appendChild(preview);
+      if (ident==='viewport-test') {
+        const run=document.createElement('button'); run.type='button'; run.className='btn diagnostic-run'; run.textContent='Run on display';
+        run.onclick=async e=>{e.stopPropagation(); await sendLayoutToDisplay(ident);}; choice.appendChild(run);
+      }
       if (ident.startsWith('custom-')) {
         const edit=document.createElement('button'); edit.type='button'; edit.className='layout-icon'; edit.textContent='✎'; edit.title='Edit '+label; edit.setAttribute('aria-label',edit.title);
         edit.onclick=e=>{e.stopPropagation(); editLayout(layout);}; choice.appendChild(edit);
@@ -1313,12 +1318,15 @@ async function saveCardAssignments() {
   ecoConfig=await r.json(); renderAll(); return true;
 }
 document.getElementById('eco-save').onclick=saveCardAssignments;
+async function sendLayoutToDisplay(ident) {
+  const r=await fetch('/electrocoin/layout/display?id='+encodeURIComponent(ident),{method:'POST'});
+  if (!r.ok) { alert('Could not send this layout to the display: '+await r.text()); return; }
+  ecoConfig=await r.json(); renderAll();
+}
 document.getElementById('layout-send').onclick=async()=>{
   const layout=selectedLayout(); if (!layout) return;
   if (!await saveCardAssignments()) return;
-  const r=await fetch('/electrocoin/layout/display?id='+encodeURIComponent(layout.id),{method:'POST'});
-  if (!r.ok) { alert('Could not send this layout to the display: '+await r.text()); return; }
-  ecoConfig=await r.json(); renderAll();
+  await sendLayoutToDisplay(layout.id);
 };
 loadEco();
 
