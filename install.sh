@@ -22,7 +22,7 @@
 
 set -euo pipefail
 
-REPO_RAW="https://raw.githubusercontent.com/beastech/marqueemark/main"
+REPO_RAW="https://raw.githubusercontent.com/darren-p-thomas/marqueemark/main"
 INSTALL_DIR="/opt/marqueemark"
 SERVICE="/etc/systemd/system/marqueemark.service"
 
@@ -40,11 +40,11 @@ say "Installing MarqueeMark for user: $USER_NAME"
 # ----------------------------------------------------------- dependencies
 say "Installing dependencies (this can take a minute)"
 sudo apt-get update -qq
-sudo apt-get install -y -qq python3-serial python3-pygame
+sudo apt-get install -y -qq python3-serial python3-pygame python3-pil
 
 # ----------------------------------------------------------------- files
 say "Setting up $INSTALL_DIR"
-sudo mkdir -p "$INSTALL_DIR/art"
+sudo mkdir -p "$INSTALL_DIR/art" "$INSTALL_DIR/bases"
 sudo chown -R "$USER_NAME:$USER_NAME" "$INSTALL_DIR"
 
 # Always try to fetch the latest version, so re-running this script is
@@ -75,6 +75,21 @@ else
   Workaround: copy marqueemark.py into $INSTALL_DIR yourself, then re-run."
 fi
 
+INSTALL_VERSION="$(sed -n 's/^VERSION = "\(.*\)"/\1/p' "$INSTALL_DIR/marqueemark.py" | head -n 1)"
+[ -n "$INSTALL_VERSION" ] && echo "  installed version: $INSTALL_VERSION"
+
+# Title labels for MAME-style artwork names. This is optional at runtime
+# (the admin page falls back to readable filenames), but updating it here
+# makes selectors show proper game titles such as "Tecmo World Soccer '96".
+say "Downloading game title labels"
+TMP_TITLES="$(mktemp)"
+if curl -fsSL "$REPO_RAW/game_titles.json" -o "$TMP_TITLES" && [ -s "$TMP_TITLES" ]; then
+  mv "$TMP_TITLES" "$INSTALL_DIR/game_titles.json"
+else
+  rm -f "$TMP_TITLES"
+  echo "  could not download title labels; filename labels will be used"
+fi
+
 # ------------------------------------------------------- starter artwork
 # A fallback marquee so the panel shows something on first boot instead
 # of a black rectangle. Only installed if the user has none: an update
@@ -93,6 +108,29 @@ if [ ! -f "$INSTALL_DIR/art/generic.png" ]; then
 else
   echo "  keeping your existing art/generic.png"
 fi
+
+# Built-in cabinet layouts are application assets, not user-selected game
+# artwork. Add a newly introduced template on update if it is missing, while
+# never replacing an existing local copy (so users may still customise it).
+install_builtin_base() {
+  local asset="$1" tmp
+  if [ -f "$INSTALL_DIR/art/$asset" ]; then
+    echo "  keeping existing built-in base: $asset"
+    return
+  fi
+  tmp="$(mktemp)"
+  if curl -fsSL "$REPO_RAW/art/$asset" -o "$tmp" && [ -s "$tmp" ]; then
+    mv "$tmp" "$INSTALL_DIR/art/$asset"
+    echo "  installed built-in base: $asset"
+  else
+    rm -f "$tmp"
+    echo "  could not download built-in base: $asset"
+  fi
+}
+say "Installing built-in marquee templates"
+install_builtin_base "electrocoin-base.png"
+install_builtin_base "neogeo-one-slot.png"
+install_builtin_base "ultrawide-viewport-test.png"
 
 # ----------------------------------------------------------- permissions
 say "Granting serial and display access"
@@ -157,6 +195,8 @@ WorkingDirectory=$INSTALL_DIR
 ExecStart=/usr/bin/python3 $INSTALL_DIR/marqueemark.py $RUN_ARGS
 Restart=always
 RestartSec=3
+TimeoutStopSec=5
+KillMode=control-group
 
 [Install]
 WantedBy=multi-user.target

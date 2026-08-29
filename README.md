@@ -67,6 +67,56 @@ Add the PNGs from the built-in art manager page.
 I include a "generic.png" image of the Gamesboro logo
 so that you can align your image before downloading the pack.
 
+### Electrocoin four-slot layout
+
+`--electrocoin` enables the first **Digital Marquee (1366 × 360)**
+template: the wide four-card Electrocoin conversion. Its Admin page lets
+you choose what each card shows: blank, the highlighted live **NeoSD Pro**
+card, or a fixed artwork card. Artwork choices use friendly game titles;
+an unknown hack or homebrew shows its PNG filename instead, for example
+`myhack.png`. Only one card can be the live NeoSD Pro card.
+
+**Custom layouts** are a small layout library, separate from game-art
+assignments. Give a new layout a name, choose either a PNG/JPEG background
+(crop to fill or fit with black bars) or a solid colour, then select a real
+Neo Geo slot count: **1, 2, 4, or 6**. The editor adds that many labelled
+mini-marquee objects; drag them and resize them with their aspect ratio
+locked. Saving makes the layout a reusable pill, which can later be selected
+or deleted without touching game artwork. Selecting or editing a layout does
+not change the physical marquee: use **Send to display** when it is ready.
+Once a layout is selected, its separate card-assignment controls appear
+underneath. Deleting a layout that is currently on display safely returns the
+cabinet to the built-in Electrocoin layout after confirmation.
+
+The built-in template library currently includes **Electrocoin four-slot** and
+**Neo Geo one-slot**. The one-slot design uses its original black “Now
+Featuring” window for the generated mini marquee. Neo Geo two-, four-, and
+six-slot templates remain planned.
+
+MarqueeMark's Admin page also works with HDMI disconnected, so layouts can be
+created and managed while the cabinet is powered down. Reconnect the display
+and restart MarqueeMark to resume physical output.
+
+### Optional AI-generated backgrounds
+
+The custom-layout editor can generate a background from a text prompt with a
+user-supplied OpenAI or Google Gemini API key. The key is sent directly from
+the user's browser to that provider; MarqueeMark and the Pi receive only the
+generated image. Keys are kept only for the current browser session unless
+the user explicitly checks **Remember this key on this device**, which stores
+it in that browser's local storage. Anyone with access to that browser profile
+can use a remembered key, so use the option only on a trusted device.
+
+The generation workflow is independently implemented and was inspired by
+[IFWG by raz0red](https://github.com/raz0red/ifwithgraphics).
+
+Use **Validate key** before generating to load the image models currently
+available to that provider key, then choose the desired model from the list.
+
+When placing slots, **Keep all slots the same size** lets the user choose one
+reference slot. Its resize handle updates every slot's dimensions together,
+while their positions remain independently adjustable.
+
 ## How it works
 
 The NeoSD Pro's USB port appears as a standard serial device
@@ -529,6 +579,21 @@ correct an upside-down image.
 | `--art-source` | none | `--manual` only. Base URL of another MarqueeMark (e.g. `http://marquee.local:8080`) to pull art from, so the library lives in one place instead of being copied to every panel. |
 | `--sleep-source` | none | `--manual` only. URL of another MarqueeMark's `/current` endpoint. This panel sleeps and wakes to match that cabinet's power state. Omit to control sleep by hand instead. |
 | `--calibrate` | (none) | Advanced: offline terminal calibration for a bench with no network. The admin page is the normal way to calibrate. Keys: arrows move, `+`/`-` resize, `,` `.` `<` `>` tilt, `d` cycle D-pad orientation, `t` step size, `p` pattern/art preview, `r` reset, `s` save, `q` quit. |
+
+## Electrocoin four-slot proof of concept
+
+The optional `--electrocoin` mode is for a wide digital marquee in an
+Electrocoin four-slot cabinet. It draws a fixed base image with four portrait
+ windows. The admin page lets you choose any uploaded base image and assign
+ each card as fixed art, blank, or the live NeoSD Pro card (one card only).
+
+Upload a base image named `electrocoin-base.png` through the normal art manager,
+then start MarqueeMark with `--electrocoin`. The first proof-of-concept layout
+expects a 1366 x 360 base image and uses the upper 360 rows of the HDMI output.
+The saved choices live in `/opt/marqueemark/electrocoin.json`.
+
+This mode does not yet identify the MVS motherboard's active physical slot;
+GPIO-based active-slot highlighting is a future enhancement.
 
 ## Troubleshooting
 
