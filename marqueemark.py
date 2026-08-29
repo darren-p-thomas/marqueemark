@@ -93,7 +93,9 @@ ELECTROCOIN_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)
 ELECTROCOIN_LAYOUTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "digital_layouts.json")
 GAME_TITLES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "game_titles.json")
 ELECTROCOIN_BASE_SIZE = (1366, 360)
-ELECTROCOIN_VIEWPORT_HEIGHT = 360
+# Temporary viewport-height calibration test. Restore this to the measured
+# value after testing the `Viewport Height Test` built-in template.
+ELECTROCOIN_VIEWPORT_HEIGHT = 420
 ELECTROCOIN_SLOT_COUNTS = (1, 2, 4, 6)
 ELECTROCOIN_SLOT_RATIO = 176 / 230
 ELECTROCOIN_DEFAULT = {"base": "electrocoin-base.png",
@@ -109,6 +111,9 @@ BUILTIN_LAYOUTS = {
     "neogeo-one-slot": {"id": "neogeo-one-slot", "name": "Neo Geo 1 Slot", "base": "neogeo-one-slot.png",
                         "base_source": "builtin", "background_type": "image", "background_color": "#000000",
                         "windows": [[1053, 34, 231, 290]]},
+    "viewport-test": {"id": "viewport-test", "name": "Viewport Height Test (temporary)", "base": "ultrawide-viewport-test.png",
+                      "base_source": "builtin", "background_type": "image", "background_color": "#000000",
+                      "windows": [[0, 0, 40, 40]]},
 }
 
 def _art_stem(value):
