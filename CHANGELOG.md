@@ -3,6 +3,36 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.5-layout-modes.1 — Mini and Ultrawide Marquee modes
+
+- Split the Admin experience into always-available **Mini Marquee** and
+  **Ultrawide Marquee** areas. Browsing either area never changes the physical
+  HDMI output.
+- Added first-run display setup stored on the Pi, rather than in a browser:
+  choose the connected Mini Marquee or Ultrawide Marquee and MarqueeMark uses
+  that renderer after future service restarts and cold boots.
+- Made later display-type changes deliberately safe: the user is warned that
+  the output redraws immediately, then has 30 seconds to keep the change or
+  automatically revert to the previous renderer.
+- Added a clear **Monitor Output** status/control in the header and made the
+  Mini/Ultrawide Admin tabs more prominent.
+- Added built-in **Neo Geo 2 Slot**, **Neo Geo 4 Slot**, and **Neo Geo 6 Slot**
+  Ultrawide templates, alongside the existing Electrocoin 4 Slot and Neo Geo
+  1 Slot bases. Each maps the correct number of portrait mini-marquee windows.
+- Updated the Ultrawide canvas and built-in assets to the measured
+  **1366 × 380** visible panel area. The advanced viewport-height diagnostic
+  remains available for unusual panels, but is kept separate from layouts and
+  has no card assignments.
+- Improved the Ultrawide workflow with a prominent **Create your own layout**
+  action and an empty state for new installations with no live layout yet.
+- Prevented the background status refresh from closing a card-art picker while
+  it is being used. Saving assignments now provides a short **Saved** button
+  acknowledgement without rebuilding the form.
+- Refined the card-assignment controls with compact modern dark selectors,
+  plus clearer template, preview, and output-status styling.
+- Updated installation support so the required Ultrawide assets and current
+  application code are included on fresh installs and updates.
+
 ## v1.3.4-electrocoin.19 — Layout library refinement
 
 - Grouped provided cabinet designs under **Built-in templates** and saved
