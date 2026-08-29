@@ -1484,7 +1484,6 @@ function closeDisplayModeKeep() {
   if (displayModeCountdownTimer) { clearInterval(displayModeCountdownTimer); displayModeCountdownTimer=null; }
 }
 function dismissDisplayModeSetup() {
-  if (!displayModeConfigured) sessionStorage.setItem('marqueemark-display-setup-dismissed','1');
   closeDisplayModeSetup();
 }
 function openDisplayModeSetup(firstVisit=false) {
@@ -1582,7 +1581,7 @@ async function refreshMode() {
   }
   if (!hasSavedAdminTab) setAdminTab(activeDisplayMode, false);
   renderDisplayMode();
-  if (!displayModeConfigured && !firstSetupPrompted && !sessionStorage.getItem('marqueemark-display-setup-dismissed')) {
+  if (!displayModeConfigured && !firstSetupPrompted) {
     firstSetupPrompted=true; openDisplayModeSetup(true);
   }
   document.getElementById('sec-showing').classList.toggle('hidden', !isManual);
