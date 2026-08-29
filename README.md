@@ -36,6 +36,9 @@ reversible.
   be set to manual mode instead. Pick its art from the same kind of admin
   page, and it can pull its whole art library from the primary Pi and
   mirror its sleep state automatically, or be put to sleep by hand.
+- **Electrocoin four-slot mode**: an alternate wide layout for Electrocoin
+  cabinet conversions, with a saved layout library and optional
+  AI-generated backgrounds, contributed by Darren (darren-p-thomas)
 - **OBS stream overlay**: a browser source URL that shows the current
   game's mini-marquee art in the corner of your stream, updating live
 - **Browser art manager**: drag and drop your marquee PNGs onto a web page
@@ -69,12 +72,15 @@ so that you can align your image before downloading the pack.
 
 ### Electrocoin four-slot layout
 
-`--electrocoin` enables the first **Digital Marquee (1366 × 360)**
-template: the wide four-card Electrocoin conversion. Its Admin page lets
-you choose what each card shows: blank, the highlighted live **NeoSD Pro**
-card, or a fixed artwork card. Artwork choices use friendly game titles;
-an unknown hack or homebrew shows its PNG filename instead, for example
-`myhack.png`. Only one card can be the live NeoSD Pro card.
+This mode was contributed by Darren (darren-p-thomas), who built it for
+his Electrocoin cabinet conversion. Thanks to his work, `--electrocoin`
+enables a second output mode alongside the standard portrait panel: a
+**Digital Marquee (1366 x 380)** template for wide Electrocoin four-slot
+cabinets. Its Admin page lets you choose what each card shows: blank, the
+highlighted live **NeoSD Pro** card, or a fixed artwork card. Artwork
+choices use friendly game titles; an unknown hack or homebrew shows its
+PNG filename instead, for example `myhack.png`. Only one card can be the
+live NeoSD Pro card.
 
 **Custom layouts** are a small layout library, separate from game-art
 assignments. Give a new layout a name, choose either a PNG/JPEG background
@@ -89,8 +95,8 @@ underneath. Deleting a layout that is currently on display safely returns the
 cabinet to the built-in Electrocoin layout after confirmation.
 
 The built-in template library currently includes **Electrocoin four-slot** and
-**Neo Geo one-slot**. The one-slot design uses its original black “Now
-Featuring” window for the generated mini marquee. Neo Geo two-, four-, and
+**Neo Geo one-slot**. The one-slot design uses its original black "Now
+Featuring" window for the generated mini marquee. Neo Geo two-, four-, and
 six-slot templates remain planned.
 
 MarqueeMark's Admin page also works with HDMI disconnected, so layouts can be
@@ -99,13 +105,14 @@ and restart MarqueeMark to resume physical output.
 
 ### Optional AI-generated backgrounds
 
-The custom-layout editor can generate a background from a text prompt with a
-user-supplied OpenAI or Google Gemini API key. The key is sent directly from
-the user's browser to that provider; MarqueeMark and the Pi receive only the
-generated image. Keys are kept only for the current browser session unless
-the user explicitly checks **Remember this key on this device**, which stores
-it in that browser's local storage. Anyone with access to that browser profile
-can use a remembered key, so use the option only on a trusted device.
+Also contributed by Darren, the custom-layout editor can generate a
+background from a text prompt with a user-supplied OpenAI or Google
+Gemini API key. The key is sent directly from the user's browser to that
+provider; MarqueeMark and the Pi receive only the generated image. Keys
+are kept only for the current browser session unless the user explicitly
+checks **Remember this key on this device**, which stores it in that
+browser's local storage. Anyone with access to that browser profile can
+use a remembered key, so use the option only on a trusted device.
 
 The generation workflow is independently implemented and was inspired by
 [IFWG by raz0red](https://github.com/raz0red/ifwithgraphics).
@@ -116,6 +123,36 @@ available to that provider key, then choose the desired model from the list.
 When placing slots, **Keep all slots the same size** lets the user choose one
 reference slot. Its resize handle updates every slot's dimensions together,
 while their positions remain independently adjustable.
+
+### Enabling Electrocoin mode
+
+Electrocoin mode uses the same install and update process as the rest of
+this README. Run the install command below (or the update command if
+MarqueeMark is already installed) so the Pi is on a version that includes
+it, then add the flag to the service:
+
+1. Edit the service:
+
+```bash
+sudo systemctl edit --full marqueemark
+```
+
+2. Add `--electrocoin` to the end of the `ExecStart` line, then save and
+   exit.
+
+3. Restart the service:
+
+```bash
+sudo systemctl restart marqueemark
+```
+
+Open the admin page as usual. A **Digital Marquee** section appears at
+the top once Electrocoin mode is active, with the layout library and card
+assignment controls described above.
+
+Electrocoin mode targets a wide 1366 x 380 pixel display instead of the
+portrait panel listed in the Hardware section above, so it needs a
+different screen than a standard single-slot install.
 
 ## How it works
 
@@ -258,9 +295,9 @@ curl -fsSL https://raw.githubusercontent.com/beastech/marqueemark/main/install.s
 ```
 
 On a re-run the installer downloads the current version, keeps any
-options you added to the service (such as `--idle generic` or
-`--keep-awake`), and restarts the service instead of rebooting. Your art,
-calibration, and slot history are left untouched.
+options you added to the service (such as `--idle generic`, `--keep-awake`,
+or `--electrocoin`), and restarts the service instead of rebooting. Your
+art, calibration, and slot history are left untouched.
 
 If you calibrated before this update, the arrow keys may need a quick
 recheck the first time you open calibration afterward. See
@@ -480,10 +517,13 @@ sudo raspi-config nonint do_boot_behaviour B1
 ### 2. Dependencies and files
 
 ```bash
-sudo apt install -y python3-serial python3-pygame
+sudo apt install -y python3-serial python3-pygame python3-pil
 sudo mkdir -p /opt/marqueemark/art
 sudo chown -R $USER:$USER /opt/marqueemark
 ```
+
+`python3-pil` is only used by Electrocoin mode's AI background generator;
+it's small, so it's worth installing either way.
 
 Copy `marqueemark.py` into `/opt/marqueemark/`. Art is added later from
 the admin page, no file-transfer tools needed.
@@ -542,7 +582,9 @@ WantedBy=multi-user.target
 
 (Replace `YOUR_USERNAME` with yours. For a second, manual-mode panel, add
 the flags described in [Adding a second marquee](#adding-a-second-marquee)
-to the `ExecStart` line.) Then:
+to the `ExecStart` line. For Electrocoin mode, add `--electrocoin`
+instead; see [Enabling Electrocoin mode](#enabling-electrocoin-mode).)
+Then:
 
 ```bash
 sudo systemctl daemon-reload
@@ -578,22 +620,8 @@ correct an upside-down image.
 | `--manual` | off | No NeoSD Pro on this panel; pick the marquee by hand from the admin page instead. Use for a second panel behind a real cartridge, or any cabinet without a NeoSD Pro at all. See [Adding a second marquee](#adding-a-second-marquee). |
 | `--art-source` | none | `--manual` only. Base URL of another MarqueeMark (e.g. `http://marquee.local:8080`) to pull art from, so the library lives in one place instead of being copied to every panel. |
 | `--sleep-source` | none | `--manual` only. URL of another MarqueeMark's `/current` endpoint. This panel sleeps and wakes to match that cabinet's power state. Omit to control sleep by hand instead. |
+| `--electrocoin` | off | Switches to the wide Electrocoin four-slot digital marquee mode instead of the standard portrait panel. Adds a Digital Marquee section to the admin page with a layout library and optional AI-generated backgrounds. Contributed by Darren (darren-p-thomas). See [Enabling Electrocoin mode](#enabling-electrocoin-mode). |
 | `--calibrate` | (none) | Advanced: offline terminal calibration for a bench with no network. The admin page is the normal way to calibrate. Keys: arrows move, `+`/`-` resize, `,` `.` `<` `>` tilt, `d` cycle D-pad orientation, `t` step size, `p` pattern/art preview, `r` reset, `s` save, `q` quit. |
-
-## Electrocoin four-slot proof of concept
-
-The optional `--electrocoin` mode is for a wide digital marquee in an
-Electrocoin four-slot cabinet. It draws a fixed base image with four portrait
- windows. The admin page lets you choose any uploaded base image and assign
- each card as fixed art, blank, or the live NeoSD Pro card (one card only).
-
-Upload a base image named `electrocoin-base.png` through the normal art manager,
-then start MarqueeMark with `--electrocoin`. The first proof-of-concept layout
-expects a 1366 x 360 base image and uses the upper 360 rows of the HDMI output.
-The saved choices live in `/opt/marqueemark/electrocoin.json`.
-
-This mode does not yet identify the MVS motherboard's active physical slot;
-GPIO-based active-slot highlighting is a future enhancement.
 
 ## Troubleshooting
 
@@ -636,6 +664,10 @@ GPIO-based active-slot highlighting is a future enhancement.
   points at the primary Pi and that Pi is reachable on the network. This
   panel falls back to its local cache when the primary can't be reached,
   so a brief outage shows old art rather than nothing.
+- **Electrocoin mode's Digital Marquee section doesn't appear**: confirm
+  the service actually includes `--electrocoin`. Run
+  `sudo systemctl cat marqueemark` to see the exact command it's running,
+  and restart the service after any change.
 
 ## Limitations & roadmap
 
@@ -644,9 +676,14 @@ GPIO-based active-slot highlighting is a future enhancement.
 - A second, manual-mode panel needs its own Raspberry Pi. A single Pi
   driving two panels at once is not possible under the display driver
   MarqueeMark currently uses.
+- Electrocoin mode does not yet identify the MVS motherboard's active
+  physical slot; GPIO-based active-slot highlighting is a possible future
+  enhancement.
 
 ## Credits
 
 Built by Britt at [Gamesboro](https://gamesboro.net). The NeoSD Pro USB
 announcement protocol was reverse-engineered on real hardware for this
-project. Not affiliated with or endorsed by TerraOnion or SNK.
+project. Electrocoin four-slot mode, its layout library, and the AI
+background generator were contributed by Darren (darren-p-thomas). Not
+affiliated with or endorsed by TerraOnion or SNK.
