@@ -890,7 +890,7 @@ const ECO_WIDTH=1366, ECO_HEIGHT=380;
 const ECO_DEFAULT_WINDOWS=[[65,51,176,243],[442,51,178,243],[752,51,174,243],[1125,51,176,243]];
 const ECO_SLOT_RATIO=176/230, ECO_SLOT_COUNTS=[1,2,4,6];
 let ecoConfig=null, ecoFiles=[], ecoTitles={}, editingLayout=false, editingLayoutId=null, layoutDraft={base:'',background_type:'image',background_color:'#000000',windows:[]}, layoutDraftDirty=false, nameModalMode='create', uniformSlots=false, uniformLeader=0;
-let ecoLiveShort=null, ecoLiveEvents=null;
+let ecoLiveShort=null, ecoLiveEvents=null, layoutSelectionRequest=0;
 const blankCard=()=>({source:'blank',art:''});
 
 function selectedLayout() {
@@ -1236,8 +1236,17 @@ const rememberedAiProvider=readAiSettings().provider;
 if (rememberedAiProvider==='openai' || rememberedAiProvider==='gemini') document.getElementById('ai-provider').value=rememberedAiProvider;
 restoreAiKey();
 async function selectLayout(ident) {
+  // A library pill always leaves the editor. Do this before awaiting the
+  // server so normal layouts cannot briefly retain the editor's hidden
+  // assignment state; the sequence also makes rapid clicks deterministic.
+  const request=++layoutSelectionRequest;
+  editingLayout=false; editingLayoutId=null; layoutDraftDirty=false;
+  if (ecoConfig) ecoConfig.selected_layout_id=ident;
+  renderAll();
   const r=await fetch('/electrocoin/layout/select?id='+encodeURIComponent(ident),{method:'POST'});
-  if (!r.ok) { alert('Could not select that layout.'); return; } ecoConfig=await r.json(); editingLayout=false; renderAll();
+  if (request!==layoutSelectionRequest) return;
+  if (!r.ok) { alert('Could not select that layout.'); return; }
+  ecoConfig=await r.json(); editingLayout=false; renderAll();
 }
 function editLayout(layout) {
   editingLayout=true; editingLayoutId=layout.id;
@@ -1316,7 +1325,11 @@ async function loadEco() {
 function renderAll() {
   renderBasePills(); renderCustomEditor(); renderLivePreview();
   const layout=selectedLayout(), isDiagnostic=layout && layout.diagnostic;
-  const assignments=document.getElementById('eco-assignment-section'); assignments.classList.toggle('hidden',editingLayout || isDiagnostic);
+  // Only the zero-slot diagnostic and the layout editor suppress this panel.
+  // Every selected cabinet/custom layout always has its assignments and send
+  // controls available, regardless of what was previously on display.
+  const showAssignments=!!layout && !editingLayout && !isDiagnostic;
+  const assignments=document.getElementById('eco-assignment-section'); assignments.classList.toggle('hidden',!showAssignments);
   if (!editingLayout) {
     if (isDiagnostic) return;
     document.getElementById('eco-assignment-hint').textContent='Assign marquee art to “'+(layout?layout.name:'this layout')+'”. NeoSD Pro is the special live card.';
