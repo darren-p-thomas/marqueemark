@@ -243,8 +243,13 @@ def electro_config(raw=None):
     cfg = {"base": ELECTROCOIN_DEFAULT["base"], "cards": [dict(c) for c in ELECTROCOIN_DEFAULT["cards"]],
            "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]], "base_source": "builtin", "background_type": "image", "background_color": "#000000",
            "layout_id": "electrocoin", "selected_layout_id": "electrocoin",
+           # Existing configurations predate this flag and therefore retain
+           # their established displayed layout. A brand-new Pi is marked
+           # false by load_electrocoin_config() until Send to display.
+           "layout_sent": True,
            "assignments": {"electrocoin": [dict(c) for c in ELECTROCOIN_DEFAULT["cards"]]}}
     if isinstance(raw, dict):
+        cfg["layout_sent"] = bool(raw.get("layout_sent", True))
         source = raw.get("base_source")
         cfg["background_type"] = raw.get("background_type") if raw.get("background_type") in ("image", "color") else "image"
         cfg["background_color"] = _hex_colour(raw.get("background_color")) or "#000000"
@@ -292,7 +297,7 @@ def electro_config(raw=None):
 def load_electrocoin_config():
     try:
         with open(ELECTROCOIN_CONFIG_PATH) as f: raw = json.load(f)
-    except (OSError, ValueError): return electro_config()
+    except (OSError, ValueError): return electro_config({"layout_sent": False})
     cfg = electro_config(raw)
     # Built-in templates and legacy custom layouts were authored on the old
     # 360px canvas. Always use their current stored geometry on load so a
@@ -335,6 +340,7 @@ def activate_layout(cfg, layout, layouts=None):
     if not isinstance(cards, list) or len(cards) != len(layout["windows"]):
         cards = ELECTROCOIN_DEFAULT["cards"] if layout["id"] == "electrocoin" else []
     cfg["layout_id"] = layout["id"]
+    cfg["layout_sent"] = True
     cfg["base"], cfg["base_source"] = layout["base"], layout.get("base_source", "custom")
     cfg["background_type"] = layout.get("background_type", "image")
     cfg["background_color"] = _hex_colour(layout.get("background_color")) or "#000000"
@@ -716,6 +722,11 @@ ADMIN_HTML = """<!DOCTYPE html>
   #live-layout-panel { margin: 14px 0 24px; padding: 14px; border: 1px solid #30354b; border-radius: 10px; background: #141520; }
   #live-layout-canvas { position: relative; width: min(720px,100%); aspect-ratio: 1366 / 380; margin-top: 10px;
                          overflow: hidden; background: #050508 center / cover no-repeat; border: 1px solid #5e6380; }
+  #live-layout-canvas.empty { display: grid; place-items: center; background: #090a11 !important; }
+  .live-layout-empty { max-width: 420px; padding: 16px; text-align: center; }
+  .live-layout-empty strong { display: block; font-size: 1rem; }
+  .live-layout-empty p { margin: 6px 0 12px; color: #aab1c1; font-size: .84rem; }
+  .live-layout-empty .cal-row { justify-content: center; flex-wrap: wrap; }
   .marquee-card-image { position: absolute; object-fit: fill; }
   .neosd-placeholder { position: absolute; box-sizing: border-box; display: flex; flex-direction: column;
                        align-items: center; justify-content: center; gap: 3px; overflow: hidden;
@@ -1010,6 +1021,15 @@ function renderLivePreview() {
   if (!ecoConfig) return;
   const layout=(ecoConfig.layouts||[]).find(item=>item.id===ecoConfig.layout_id) || null;
   const canvas=document.getElementById('live-layout-canvas'), name=document.getElementById('live-layout-name');
+  if (!ecoConfig.layout_sent) {
+    canvas.innerHTML='<div class="live-layout-empty"><strong>No Ultrawide layout on display yet</strong><p>Choose a built-in template or create your own, then send it to the display.</p><div class="cal-row"><button id="live-empty-create" type="button" class="btn primary">Create custom layout</button><button id="live-empty-browse" type="button" class="btn">Browse templates</button></div></div>';
+    canvas.classList.add('empty'); canvas.style.backgroundImage='none'; canvas.style.backgroundColor='#090a11';
+    name.textContent='Nothing has been sent to the Ultrawide display yet.';
+    document.getElementById('live-empty-create').onclick=createCustomLayout;
+    document.getElementById('live-empty-browse').onclick=()=>document.getElementById('eco-builtins').scrollIntoView({behavior:'smooth',block:'center'});
+    return;
+  }
+  canvas.classList.remove('empty');
   if (!layout) { canvas.innerHTML=''; name.textContent='No live layout is available.'; return; }
   const image=layout.background_type!=='color', path=layoutBackgroundPath(layout);
   canvas.innerHTML=''; canvas.style.backgroundImage=image?'url('+path+encodeURIComponent(layout.base)+')':'none'; canvas.style.backgroundColor=image?'#050508':(layout.background_color||'#000000');
@@ -2468,6 +2488,11 @@ class Display:
         return surf
 
     def _show_electrocoin(self):
+        # A fresh Ultrawide setup deliberately has no assumed cabinet art.
+        # Keep the panel dark until the owner explicitly sends a layout.
+        if not self.electro_config.get("layout_sent", True):
+            self.blank()
+            return
         if not self.calibrating: self._fade_to(self._electro_surface())
 
     def _text_card(self, game):
