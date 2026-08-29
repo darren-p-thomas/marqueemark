@@ -692,6 +692,12 @@ ADMIN_HTML = """<!DOCTYPE html>
   .layout-library-group:first-child { margin-top: 8px; }
   .layout-library-title { margin: 0 0 4px; color: #9ea6bc; font-size: .78rem; font-weight: 600;
                           letter-spacing: .03em; text-transform: uppercase; }
+  .create-layout-cta { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+                        margin: 16px 0; padding: 14px; border: 1px solid #405489; border-radius: 10px;
+                        background: linear-gradient(90deg, #18213b, #141520); }
+  .create-layout-cta strong, .create-layout-cta span { display: block; }
+  .create-layout-cta span { margin-top: 3px; color: #aab1c1; font-size: .84rem; }
+  @media (max-width: 560px) { .create-layout-cta { align-items: flex-start; flex-direction: column; } }
   .advanced-diagnostics { margin-top: 14px; color: #9ea6bc; font-size: .84rem; }
   .advanced-diagnostics summary { cursor: pointer; width: fit-content; }
   .advanced-diagnostics .template-pills { margin: 8px 0 0; }
@@ -758,6 +764,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   </section>
   <h3 class="subheading">Marquee layout</h3>
   <p class="hint">Choose a saved layout, or create a new one. Layouts contain only the background and mini-marquee positions.</p>
+  <div class="create-layout-cta"><div><strong>Create your own layout</strong><span>Upload or generate a background, then position 1, 2, 4, or 6 mini-marquee windows.</span></div><button id="create-custom-layout" type="button" class="btn primary">+ Create custom layout</button></div>
   <div class="layout-library-group"><p class="layout-library-title">Built-in templates</p><div id="eco-builtins" class="template-pills" role="radiogroup" aria-label="Built-in marquee templates"></div></div>
   <div class="layout-library-group"><p class="layout-library-title">Your layouts</p><div id="eco-customs" class="template-pills" role="radiogroup" aria-label="Your marquee layouts"></div></div>
   <details class="advanced-diagnostics"><summary>Advanced diagnostics</summary><p class="hint" style="margin:8px 0 0">Tools for measuring or troubleshooting an unusual display.</p><div id="eco-diagnostics" class="template-pills" role="radiogroup" aria-label="Advanced display diagnostics"></div></details>
@@ -1159,15 +1166,12 @@ function renderBasePills() {
     const pill=document.createElement('button'); pill.type='button'; pill.className='template-pill'; pill.textContent=label.length>50?label.slice(0,50)+'…':label; pill.title=label; pill.disabled=disabled;
     pill.dataset.layoutId=ident; pill.setAttribute('role','radio');
     const selected=!editingLayout && ecoConfig.selected_layout_id===ident; pill.classList.toggle('selected',selected); pill.setAttribute('aria-checked',selected);
-    if (!disabled) pill.onclick=()=>{
-      if (ident==='create') { editingLayout=true; editingLayoutId=null; layoutDraft={base:'',background_type:'image',background_color:'#000000',windows:[]}; uniformSlots=false; uniformLeader=0; layoutDraftDirty=false; renderAll(); }
-      else selectLayout(ident);
-    };
-    if (!disabled && ident !== 'create' && ecoConfig.layout_id===ident) {
+    if (!disabled) pill.onclick=()=>selectLayout(ident);
+    if (!disabled && ecoConfig.layout_id===ident) {
       const live=document.createElement('span'); live.className='layout-live-dot'; live.title='Currently on display'; live.setAttribute('aria-label','Currently on display'); choice.appendChild(live);
     }
     choice.appendChild(pill);
-    if (!disabled && ident !== 'create') {
+    if (!disabled) {
       const preview=document.createElement('button'); preview.type='button'; preview.className='layout-icon'; preview.textContent='👁'; preview.title='Preview '+label; preview.setAttribute('aria-label',preview.title);
       preview.onclick=e=>{e.stopPropagation(); previewLayout(layout);}; choice.appendChild(preview);
       if (ident==='viewport-test') {
@@ -1187,8 +1191,13 @@ function renderBasePills() {
   ['Neo Geo 6 Slot','Neo Geo 4 Slot','Neo Geo 2 Slot'].forEach(name=>add(builtins,{id:'coming-'+name,name:name+' · coming soon'},true));
   liveFirst(layouts.filter(layout=>layout.base_source!=='builtin')).forEach(layout=>add(customs,layout));
   liveFirst(layouts.filter(layout=>layout.id==='viewport-test')).forEach(layout=>add(diagnostics,layout));
-  add(customs,{id:'create',name:'+ Create custom layout'});
 }
+function createCustomLayout() {
+  editingLayout=true; editingLayoutId=null;
+  layoutDraft={base:'',background_type:'image',background_color:'#000000',windows:[]};
+  uniformSlots=false; uniformLeader=0; layoutDraftDirty=false; renderAll();
+}
+document.getElementById('create-custom-layout').onclick=createCustomLayout;
 async function uploadCustomBase() {
   const file=document.getElementById('custom-file').files[0]; if (!file) { alert('Choose a PNG or JPEG background first.'); return; }
   const button=document.getElementById('custom-upload'); button.disabled=true; button.textContent='Uploading…';
