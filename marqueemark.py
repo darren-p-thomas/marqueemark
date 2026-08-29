@@ -1531,6 +1531,15 @@ async function tryDisplayMode(mode, button) {
   } catch (error) { alert('Could not try display mode: '+error.message); }
   finally { if (button) button.disabled=false; }
 }
+async function saveInitialDisplayMode(mode, button) {
+  if (button) button.disabled=true;
+  try {
+    const response=await fetch('/display/mode?layout='+encodeURIComponent(mode),{method:'POST'});
+    if (!response.ok) throw new Error(await response.text());
+    activeDisplayMode=mode; pendingDisplayMode=mode; displayModeConfigured=true; closeDisplayModeSetup(); renderDisplayMode();
+  } catch (error) { alert('Could not save display mode: '+error.message); }
+  finally { if (button) button.disabled=false; }
+}
 async function confirmDisplayModePreview() {
   const button=document.getElementById('display-mode-keep-confirm'); button.disabled=true;
   try {
@@ -1558,7 +1567,7 @@ document.getElementById('display-mode-close').onclick=dismissDisplayModeSetup;
 document.getElementById('display-mode-cancel').onclick=dismissDisplayModeSetup;
 document.getElementById('display-mode-warning-modal').onclick=e=>{if(e.target===e.currentTarget)closeDisplayModeWarning();};
 document.getElementById('display-mode-modal').onclick=e=>{if(e.target===e.currentTarget)dismissDisplayModeSetup();};
-document.getElementById('display-mode-apply').onclick=()=>tryDisplayMode(pendingDisplayMode,document.getElementById('display-mode-apply'));
+document.getElementById('display-mode-apply').onclick=()=>saveInitialDisplayMode(pendingDisplayMode,document.getElementById('display-mode-apply'));
 document.getElementById('display-mode-keep-confirm').onclick=confirmDisplayModePreview;
 document.getElementById('display-mode-keep-revert').onclick=revertDisplayModePreview;
 document.getElementById('display-mode-keep-close').onclick=revertDisplayModePreview;
