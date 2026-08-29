@@ -648,8 +648,12 @@ ADMIN_HTML = """<!DOCTYPE html>
   .btn.danger { background: #4a1e1e; border-color: #6a2a2a; color: #fca; }
   .btn.danger:hover { background: #5a2424; }
   .hidden { display: none !important; }
-  .display-mode-button { white-space: nowrap; flex: 0 0 auto; padding: 6px 10px; font-size: .78rem; }
-  .display-mode-button .mode-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #63d986; margin-right: 6px; }
+  .display-mode-button { white-space: nowrap; flex: 0 0 auto; min-width: 215px; padding: 8px 12px;
+                         text-align: left; }
+  .display-mode-label { display: block; margin: 0 0 2px 14px; color: #aeb8d7; font-size: .61rem;
+                        font-weight: 750; letter-spacing: .09em; }
+  .display-mode-value { display: block; font-size: .84rem; font-weight: 650; }
+  .display-mode-button .mode-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #63d986; margin-right: 6px; }
   .display-mode-button.needs-setup .mode-dot { background: #e6b94f; }
   .mode-options, .admin-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
   .mode-option { min-width: 160px; text-align: left; padding: 10px 13px; border: 1px solid #30354b;
@@ -657,11 +661,11 @@ ADMIN_HTML = """<!DOCTYPE html>
   .mode-option strong, .mode-option small { display: block; }
   .mode-option small { margin-top: 2px; font-size: .76rem; color: inherit; }
   .mode-option.selected { background: #334a80; border-color: #86a8ff; color: #fff; }
-  .admin-tabs { border-bottom: 1px solid #30354b; margin-bottom: 20px; }
+  .admin-tabs { border-bottom: 1px solid #30354b; gap: 12px; margin-bottom: 24px; }
   .admin-tab-button { border: 0; border-bottom: 3px solid transparent; background: transparent; color: #9ba1b2;
-                      padding: 9px 12px; font: 600 .92rem inherit; cursor: pointer; }
-  .admin-tab-button:hover { color: #fff; }
-  .admin-tab-button.selected { color: #fff; border-color: #86a8ff; }
+                      border-radius: 8px 8px 0 0; padding: 13px 20px 12px; font: 700 1.04rem inherit; cursor: pointer; }
+  .admin-tab-button:hover { color: #fff; background: #181b29; }
+  .admin-tab-button.selected { color: #fff; border-color: #86a8ff; background: #1b2032; }
   #drop { border: 2px dashed #555; border-radius: 10px; padding: 34px;
           text-align: center; color: #aaa; cursor: pointer; transition: all .15s; }
   #drop.hot { border-color: #c8102e; color: #fff; background: #1c1420; }
@@ -694,6 +698,15 @@ ADMIN_HTML = """<!DOCTYPE html>
   .cal-col { display: flex; flex-direction: column; gap: 14px; min-width: 220px; }
   .cal-row { display: flex; align-items: center; gap: 8px; }
   .cal-row .label { color: #999; font-size: 0.82rem; width: 44px; }
+  .eco-card { appearance: none; -webkit-appearance: none; min-width: 290px; box-sizing: border-box;
+              padding: 9px 38px 9px 12px; border: 1px solid #465579; border-radius: 8px;
+              color: #f1f4ff; background-color: #1b2132;
+              background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='8' viewBox='0 0 14 8'%3E%3Cpath d='M1 1l6 6 6-6' fill='none' stroke='%23cbd6ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+              background-repeat: no-repeat; background-position: right 13px center; background-size: 13px 8px;
+              font: 600 .91rem inherit; line-height: 1.2; box-shadow: inset 0 1px 0 rgba(255,255,255,.045); cursor: pointer; }
+  .eco-card:hover { border-color: #728bc8; background-color: #20283d; }
+  .eco-card:focus { outline: 2px solid #86a8ff; outline-offset: 2px; border-color: #86a8ff; }
+  .eco-card option, .eco-card optgroup { background: #1b2132; color: #f1f4ff; }
   .cal-actions { margin-top: 20px; display: flex; gap: 10px; }
   .subheading { margin: 22px 0 6px; font-size: 1rem; color: var(--text); }
   .template-pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
@@ -771,7 +784,9 @@ ADMIN_HTML = """<!DOCTYPE html>
 <body>
 <header><div class="header-row"><h1>Marquee<span>Mark</span> — Admin
   <small style="color:#888;font-weight:normal;font-size:0.7em">v{{VERSION}}</small></h1>
-  <button id="display-mode-change" type="button" class="btn display-mode-button"><span class="mode-dot"></span><span id="display-mode-summary">Display setup needed</span> <span id="display-mode-action">· Set up</span></button>
+  <button id="display-mode-change" type="button" class="btn display-mode-button" aria-label="Change monitor output type">
+    <span class="display-mode-label">MONITOR OUTPUT</span><span class="display-mode-value"><span class="mode-dot"></span><span id="display-mode-summary">Display setup needed</span> <span id="display-mode-action">· Set up</span></span>
+  </button>
 </div></header>
 <main>
 
