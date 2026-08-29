@@ -640,6 +640,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   .btn:hover { background: #33334a; }
   .btn.primary { background: #1e5c2e; border-color: #2a7a3e; color: #fff; }
   .btn.primary:hover { background: #257038; }
+  .btn.primary.saved { background: #23733a; border-color: #65d58b; color: #fff; }
   .btn:disabled, .btn.primary:disabled { background: #2a2a3a; border-color: #3a3a4a; color: #777; cursor: not-allowed; }
   .btn.danger { background: #4a1e1e; border-color: #6a2a2a; color: #fca; }
   .btn.danger:hover { background: #5a2424; }
@@ -1453,14 +1454,34 @@ function renderAll() {
     send.textContent=!ultrawideActive?'Choose Ultrawide mode to send':isLive?'Currently on display':'Send to display';
   }
 }
-async function saveCardAssignments() {
+async function saveCardAssignments({feedback=false}={}) {
   const layout=selectedLayout(); if (!layout) return false;
+  const button=feedback ? document.getElementById('eco-save') : null;
+  const originalLabel=button ? button.textContent : '';
+  if (button) { button.disabled=true; button.textContent='Saving…'; button.classList.remove('saved'); }
   const cards=pullCards(), q=new URLSearchParams({layout_id:layout.id});
   cards.forEach((card,i)=>q.set('card'+i,card.source==='neosd'?'__neosd__':card.source==='fixed'?card.art:''));
-  const r=await fetch('/electrocoin/config?'+q,{method:'POST'}); if (!r.ok) { alert('Could not save card assignments.'); return false; }
-  ecoConfig=await r.json(); renderAll(); return true;
+  try {
+    const r=await fetch('/electrocoin/config?'+q,{method:'POST'}); if (!r.ok) throw new Error(await r.text());
+    ecoConfig=await r.json();
+    // Do not rebuild the card controls here: a native picker may still be
+    // open, and saving should acknowledge the action without disrupting it.
+    renderLivePreview();
+    if (button) {
+      button.textContent='✓ Saved'; button.classList.add('saved');
+      window.setTimeout(()=>{
+        if (!button.isConnected) return;
+        button.disabled=false; button.textContent=originalLabel; button.classList.remove('saved');
+      },1800);
+    }
+    return true;
+  } catch (error) {
+    if (button) { button.disabled=false; button.textContent=originalLabel; }
+    alert('Could not save card assignments.'+(error.message ? ' '+error.message : ''));
+    return false;
+  }
 }
-document.getElementById('eco-save').onclick=saveCardAssignments;
+document.getElementById('eco-save').onclick=()=>saveCardAssignments({feedback:true});
 async function sendLayoutToDisplay(ident) {
   const r=await fetch('/electrocoin/layout/display?id='+encodeURIComponent(ident),{method:'POST'});
   if (!r.ok) { alert('Could not send this layout to the display: '+await r.text()); return; }
@@ -1513,7 +1534,6 @@ function renderDisplayMode() {
     ? 'Currently driving: '+displayModeName(activeDisplayMode)+'.'
     : 'No display type is configured yet. Saving your choice will immediately activate it.';
   document.getElementById('display-mode-apply').disabled=!pendingDisplayMode || (displayModeConfigured && pendingDisplayMode===activeDisplayMode);
-  if (ecoConfig) renderAll();
 }
 function closeDisplayModeWarning() { document.getElementById('display-mode-warning-modal').classList.add('hidden'); }
 function closeDisplayModeSetup() { document.getElementById('display-mode-modal').classList.add('hidden'); }
@@ -1565,7 +1585,7 @@ async function tryDisplayMode(mode, button) {
     const response=await fetch('/display/mode/preview?layout='+encodeURIComponent(mode),{method:'POST'});
     if (!response.ok) throw new Error(await response.text());
     const result=await response.json();
-    activeDisplayMode=mode; pendingDisplayMode=mode; closeDisplayModeSetup(); closeDisplayModeWarning(); openDisplayModeKeep(mode,result.previous,result.revert_in);
+    activeDisplayMode=mode; pendingDisplayMode=mode; closeDisplayModeSetup(); closeDisplayModeWarning(); openDisplayModeKeep(mode,result.previous,result.revert_in); if (ecoConfig) renderAll();
   } catch (error) { alert('Could not try display mode: '+error.message); }
   finally { if (button) button.disabled=false; }
 }
@@ -1574,7 +1594,7 @@ async function saveInitialDisplayMode(mode, button) {
   try {
     const response=await fetch('/display/mode?layout='+encodeURIComponent(mode),{method:'POST'});
     if (!response.ok) throw new Error(await response.text());
-    activeDisplayMode=mode; pendingDisplayMode=mode; displayModeConfigured=true; closeDisplayModeSetup(); renderDisplayMode();
+    activeDisplayMode=mode; pendingDisplayMode=mode; displayModeConfigured=true; closeDisplayModeSetup(); renderDisplayMode(); if (ecoConfig) renderAll();
   } catch (error) { alert('Could not save display mode: '+error.message); }
   finally { if (button) button.disabled=false; }
 }
@@ -1590,7 +1610,7 @@ async function revertDisplayModePreview() {
   const button=document.getElementById('display-mode-keep-revert'); button.disabled=true;
   try {
     const response=await fetch('/display/mode/cancel',{method:'POST'}); if (!response.ok) throw new Error(await response.text());
-    const result=await response.json(); activeDisplayMode=result.layout; pendingDisplayMode=result.layout; displayModePreview=null; closeDisplayModeKeep(); renderDisplayMode();
+    const result=await response.json(); activeDisplayMode=result.layout; pendingDisplayMode=result.layout; displayModePreview=null; closeDisplayModeKeep(); renderDisplayMode(); if (ecoConfig) renderAll();
   } catch (error) { alert('Could not revert display type: '+error.message); }
   finally { button.disabled=false; }
 }
@@ -1617,6 +1637,7 @@ let selListCache = [];  // last-known art list, so we only rebuild the
 async function refreshMode() {
   let m;
   try { m = await (await fetch('/mode')).json(); } catch (_) { return; }
+  const previousDisplayMode=activeDisplayMode;
   isManual = !!m.manual;
   activeDisplayMode=m.layout==='ultrawide'?'ultrawide':'mini';
   displayModeConfigured=!!m.layout_configured;
@@ -1628,6 +1649,10 @@ async function refreshMode() {
   }
   if (!hasSavedAdminTab) setAdminTab(activeDisplayMode, false);
   renderDisplayMode();
+  // The five-second status poll must not rebuild the Ultrawide controls: doing
+  // so closes a native card-art picker while the person is scrolling it. A
+  // redraw is only needed if the renderer itself genuinely changed.
+  if (ecoConfig && previousDisplayMode!==activeDisplayMode) renderAll();
   if (!displayModeConfigured && !firstSetupPrompted) {
     firstSetupPrompted=true; openDisplayModeSetup(true);
   }
