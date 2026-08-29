@@ -3,6 +3,13 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## v1.3.5-layout-modes.3 — Electrocoin canvas correction
+
+- Corrected the refreshed Electrocoin 4 Slot artwork: its visible artwork now
+  fills the complete **1366 × 380** canvas rather than leaving a black padded
+  band at the bottom of the physical marquee.
+- Adjusted the four built-in card windows to match the corrected artwork.
+
 ## v1.3.5-layout-modes.2 — Electrocoin four-slot refresh
 
 - Replaced the provided **Electrocoin 4 Slot** Ultrawide template with a new
