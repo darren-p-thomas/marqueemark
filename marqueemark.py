@@ -115,7 +115,7 @@ BUILTIN_LAYOUTS = {
     # 420px tall so panels with a different visible height can be measured.
     "viewport-test": {"id": "viewport-test", "name": "Advanced: Viewport Height Test", "base": "ultrawide-viewport-test.png",
                       "base_source": "builtin", "background_type": "image", "background_color": "#000000",
-                      "viewport_height": 420, "windows": [[0, 0, 40, 40]]},
+                      "viewport_height": 420, "diagnostic": True, "windows": []},
 }
 
 def _art_stem(value):
@@ -1301,9 +1301,10 @@ async function loadEco() {
 }
 function renderAll() {
   renderBasePills(); renderCustomEditor(); renderLivePreview();
-  const assignments=document.getElementById('eco-assignment-section'); assignments.classList.toggle('hidden',editingLayout);
+  const layout=selectedLayout(), isDiagnostic=layout && layout.diagnostic;
+  const assignments=document.getElementById('eco-assignment-section'); assignments.classList.toggle('hidden',editingLayout || isDiagnostic);
   if (!editingLayout) {
-    const layout=selectedLayout();
+    if (isDiagnostic) return;
     document.getElementById('eco-assignment-hint').textContent='Assign marquee art to “'+(layout?layout.name:'this layout')+'”. NeoSD Pro is the special live card.';
     document.getElementById('layout-delete').classList.toggle('hidden',!layout || !layout.id.startsWith('custom-')); renderCards();
     const send=document.getElementById('layout-send'), isLive=layout && layout.id===ecoConfig.layout_id;
