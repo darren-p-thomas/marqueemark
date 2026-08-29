@@ -112,6 +112,9 @@ BUILTIN_LAYOUTS = {
     "neogeo-one-slot": {"id": "neogeo-one-slot", "name": "Neo Geo 1 Slot", "base": "neogeo-one-slot.png",
                         "base_source": "builtin", "background_type": "image", "background_color": "#000000",
                         "windows": [[1053, 36, 231, 306]]},
+    "neogeo-two-slot": {"id": "neogeo-two-slot", "name": "Neo Geo 2 Slot", "base": "neogeo-two-slot.png",
+                         "base_source": "builtin", "background_type": "image", "background_color": "#000000",
+                         "windows": [[796, 67, 177, 238], [1063, 67, 177, 238]]},
     "neogeo-four-slot": {"id": "neogeo-four-slot", "name": "Neo Geo 4 Slot", "base": "neogeo-four-slot.png",
                           "base_source": "builtin", "background_type": "image", "background_color": "#000000",
                           "windows": [[251, 121, 153, 200], [488, 121, 153, 200],
@@ -1218,7 +1221,6 @@ function renderBasePills() {
   const liveFirst=items=>items.slice().sort((a,b)=>(b.id===ecoConfig.layout_id)-(a.id===ecoConfig.layout_id));
   const layouts=ecoConfig.layouts || [];
   liveFirst(layouts.filter(layout=>layout.base_source==='builtin' && layout.id!=='viewport-test')).forEach(layout=>add(builtins,layout));
-  ['Neo Geo 2 Slot'].forEach(name=>add(builtins,{id:'coming-'+name,name:name+' · coming soon'},true));
   liveFirst(layouts.filter(layout=>layout.base_source!=='builtin')).forEach(layout=>add(customs,layout));
   liveFirst(layouts.filter(layout=>layout.id==='viewport-test')).forEach(layout=>add(diagnostics,layout));
 }
