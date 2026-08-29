@@ -1891,6 +1891,10 @@ class Display:
         pygame.init()
         self.electrocoin = electrocoin
         self.headless = False
+        # A panel can take several seconds after power-on before KMS will
+        # accept a fullscreen surface.  Keep the web server alive in that
+        # case, then periodically try again from the main pygame thread.
+        self._headless_retry_at = 0.0
         try:
             pygame.mouse.set_visible(False)
             self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
@@ -1900,6 +1904,7 @@ class Display:
             # later service restart after reconnecting HDMI restores output.
             self.headless = True
             self.screen = pygame.Surface(ELECTROCOIN_BASE_SIZE if electrocoin else (1024, 768))
+            self._headless_retry_at = time.monotonic() + 2.0
             print("[MarqueeMark] no HDMI display (%s); running headless" % e)
         phys = self.screen.get_size()
 
@@ -2118,8 +2123,41 @@ class Display:
         self.wake_count += 1
         print("[MarqueeMark] display awake")
 
+    def _retry_headless_display(self):
+        """Re-acquire HDMI after a slow panel has finished starting up.
+
+        This is intentionally called from pump(), which runs on pygame's
+        main thread.  A browser-admin process may run with no HDMI at all;
+        retries remain quiet until a real display becomes available.
+        """
+        if not self.headless or self.manual_sleep:
+            return
+        now = time.monotonic()
+        if now < self._headless_retry_at:
+            return
+        self._headless_retry_at = now + 2.0
+        try:
+            pygame.display.init()
+            pygame.mouse.set_visible(False)
+            screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        except pygame.error:
+            return
+
+        self.screen = screen
+        self.headless = False
+        self.phys = screen.get_size()
+        if not self.electrocoin:
+            self.size = (self.phys[1], self.phys[0]) \
+                if self.rotate in (90, 270) else self.phys
+        self.current = None
+        self.wake_count += 1
+        print("[MarqueeMark] HDMI display detected; output restored")
+
     def pump(self):
-        if self.screen is None or self.headless:  # asleep/headless — nothing to pump
+        if self.headless:
+            self._retry_headless_display()
+            return True
+        if self.screen is None:  # asleep — nothing to pump
             return True
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
