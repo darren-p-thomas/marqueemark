@@ -92,10 +92,10 @@ GENERIC = "generic"  # art/generic.png — fallback marquee for the overlay
 ELECTROCOIN_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "electrocoin.json")
 ELECTROCOIN_LAYOUTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "digital_layouts.json")
 GAME_TITLES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "game_titles.json")
-ELECTROCOIN_BASE_SIZE = (1366, 360)
-# Temporary viewport-height calibration test. Restore this to the measured
-# value after testing the `Viewport Height Test` built-in template.
-ELECTROCOIN_VIEWPORT_HEIGHT = 420
+ELECTROCOIN_CANVAS_WIDTH = 1366
+ELECTROCOIN_CANVAS_HEIGHT = 380
+ELECTROCOIN_BASE_SIZE = (ELECTROCOIN_CANVAS_WIDTH, ELECTROCOIN_CANVAS_HEIGHT)
+ELECTROCOIN_VIEWPORT_HEIGHT = ELECTROCOIN_CANVAS_HEIGHT
 ELECTROCOIN_SLOT_COUNTS = (1, 2, 4, 6)
 ELECTROCOIN_SLOT_RATIO = 176 / 230
 ELECTROCOIN_DEFAULT = {"base": "electrocoin-base.png",
@@ -103,17 +103,19 @@ ELECTROCOIN_DEFAULT = {"base": "electrocoin-base.png",
     "layout_id": "electrocoin",
     "cards": [{"source": "fixed", "art": ""}, {"source": "fixed", "art": ""},
               {"source": "fixed", "art": ""}, {"source": "neosd", "art": ""}],
-    "windows": [[65, 48, 176, 230], [442, 48, 178, 230], [752, 48, 174, 230], [1125, 48, 176, 230]]}
+    "windows": [[65, 51, 176, 243], [442, 51, 178, 243], [752, 51, 174, 243], [1125, 51, 176, 243]]}
 BUILTIN_LAYOUTS = {
     "electrocoin": {"id": "electrocoin", "name": "Electrocoin 4 Slot", "base": "electrocoin-base.png",
                     "base_source": "builtin", "background_type": "image", "background_color": "#000000",
                     "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]]},
     "neogeo-one-slot": {"id": "neogeo-one-slot", "name": "Neo Geo 1 Slot", "base": "neogeo-one-slot.png",
                         "base_source": "builtin", "background_type": "image", "background_color": "#000000",
-                        "windows": [[1053, 34, 231, 290]]},
-    "viewport-test": {"id": "viewport-test", "name": "Viewport Height Test (temporary)", "base": "ultrawide-viewport-test.png",
+                        "windows": [[1053, 36, 231, 306]]},
+    # A diagnostic, not a normal cabinet template. Its image is deliberately
+    # 420px tall so panels with a different visible height can be measured.
+    "viewport-test": {"id": "viewport-test", "name": "Advanced: Viewport Height Test", "base": "ultrawide-viewport-test.png",
                       "base_source": "builtin", "background_type": "image", "background_color": "#000000",
-                      "windows": [[0, 0, 40, 40]]},
+                      "viewport_height": 420, "windows": [[0, 0, 40, 40]]},
 }
 
 def _art_stem(value):
@@ -131,8 +133,8 @@ def _slot_rect(value):
         return None
     try: x, y, w, h = (round(float(v)) for v in value)
     except (TypeError, ValueError): return None
-    w, h = max(40, min(w, 1366)), max(40, min(h, 360))
-    x, y = max(0, min(x, 1366 - w)), max(0, min(y, 360 - h))
+    w, h = max(40, min(w, ELECTROCOIN_CANVAS_WIDTH)), max(40, min(h, ELECTROCOIN_CANVAS_HEIGHT))
+    x, y = max(0, min(x, ELECTROCOIN_CANVAS_WIDTH - w)), max(0, min(y, ELECTROCOIN_CANVAS_HEIGHT - h))
     return [x, y, w, h]
 
 def _safe_layout_id(value):
@@ -171,10 +173,16 @@ def load_custom_layouts():
         background_type = layout.get("background_type") if layout.get("background_type") in ("image", "color") else "image"
         background_color = _hex_colour(layout.get("background_color")) or "#000000"
         windows = layout.get("windows")
+        source_height = layout.get("canvas_height", 360)
+        source_height = source_height if source_height in (360, ELECTROCOIN_CANVAS_HEIGHT) else 360
         parsed = [_slot_rect(r) for r in windows] if isinstance(windows, list) and len(windows) in ELECTROCOIN_SLOT_COUNTS else []
+        if source_height != ELECTROCOIN_CANVAS_HEIGHT:
+            parsed = [_slot_rect([r[0], round(r[1] * ELECTROCOIN_CANVAS_HEIGHT / source_height),
+                                 r[2], round(r[3] * ELECTROCOIN_CANVAS_HEIGHT / source_height)]) for r in parsed]
         if ident and ident not in seen and name and (base if background_type == "image" else True) and parsed and all(parsed):
             result.append({"id": ident, "name": name, "base": base, "background_type": background_type,
-                           "background_color": background_color, "windows": parsed}); seen.add(ident)
+                           "background_color": background_color, "windows": parsed,
+                           "canvas_height": ELECTROCOIN_CANVAS_HEIGHT}); seen.add(ident)
     return result
 
 def save_custom_layouts(layouts):
@@ -250,6 +258,16 @@ def load_electrocoin_config():
         with open(ELECTROCOIN_CONFIG_PATH) as f: raw = json.load(f)
     except (OSError, ValueError): return electro_config()
     cfg = electro_config(raw)
+    # Built-in templates and legacy custom layouts were authored on the old
+    # 360px canvas. Always use their current stored geometry on load so a
+    # layout and its card assignments cannot drift apart after an upgrade.
+    active = find_layout(cfg["layout_id"], load_custom_layouts())
+    if active:
+        cfg["base"], cfg["base_source"] = active["base"], active.get("base_source", "custom")
+        cfg["background_type"] = active.get("background_type", "image")
+        cfg["background_color"] = active.get("background_color", "#000000")
+        cfg["windows"] = [list(r) for r in active["windows"]]
+        cfg["cards"] = _cards(cfg.get("assignments", {}).get(active["id"], cfg["cards"]), len(cfg["windows"]))
     # Preserve an already-built pre-library Custom layout on upgrade rather
     # than leaving it as an anonymous one-off configuration.
     if raw.get("base_source") == "custom" and not _safe_layout_id(raw.get("layout_id")):
@@ -632,10 +650,10 @@ ADMIN_HTML = """<!DOCTYPE html>
            box-shadow: 0 18px 60px rgba(0,0,0,.65); }
   .modal-close { position: absolute; right: 12px; top: 10px; border: 0; background: transparent;
                  color: #cbd1e2; font-size: 1.6rem; cursor: pointer; }
-  #layout-preview-canvas { position: relative; width: 100%; aspect-ratio: 1366 / 360; margin-top: 12px;
+  #layout-preview-canvas { position: relative; width: 100%; aspect-ratio: 1366 / 380; margin-top: 12px;
                            background: #050508 center / cover no-repeat; border: 1px solid #5e6380; }
   #live-layout-panel { margin: 14px 0 24px; padding: 14px; border: 1px solid #30354b; border-radius: 10px; background: #141520; }
-  #live-layout-canvas { position: relative; width: min(720px,100%); aspect-ratio: 1366 / 360; margin-top: 10px;
+  #live-layout-canvas { position: relative; width: min(720px,100%); aspect-ratio: 1366 / 380; margin-top: 10px;
                          overflow: hidden; background: #050508 center / cover no-repeat; border: 1px solid #5e6380; }
   .marquee-card-image { position: absolute; object-fit: fill; }
   .neosd-placeholder { position: absolute; box-sizing: border-box; display: flex; flex-direction: column;
@@ -648,7 +666,7 @@ ADMIN_HTML = """<!DOCTYPE html>
                              letter-spacing: .08em; white-space: nowrap; }
   #layout-preview-canvas .layout-slot { pointer-events: none; }
   #custom-editor { margin-top: 14px; padding: 14px; border: 1px solid #30354b; border-radius: 10px; background: #11121b; }
-  #layout-canvas { position: relative; width: min(100%, 1000px); aspect-ratio: 1366 / 360;
+  #layout-canvas { position: relative; width: min(100%, 1000px); aspect-ratio: 1366 / 380;
                    margin-top: 12px; overflow: hidden; background: #050508 center / cover no-repeat;
                    border: 1px solid #5e6380; user-select: none; touch-action: none; }
   .layout-slot { position: absolute; box-sizing: border-box; border: 2px solid #31d7e9;
@@ -671,7 +689,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 <main>
 
 <section id="electrocoin-section" class="hidden">
-  <h2>Digital Marquee <span style="color:#888;font-weight:normal;font-size:0.7em">(1366 × 360)</span></h2>
+  <h2>Digital Marquee <span style="color:#888;font-weight:normal;font-size:0.7em">(1366 × 380)</span></h2>
   <section id="live-layout-panel"><h3 class="subheading" style="margin-top:0">On display</h3>
     <p id="live-layout-name" class="hint">Loading current layout…</p><div id="live-layout-canvas" aria-label="Current digital marquee preview"></div>
   </section>
@@ -850,7 +868,8 @@ drop.ondrop = e => { e.preventDefault(); drop.classList.remove('hot');
                      upload(e.dataTransfer.files); };
 refresh();
 
-const ECO_DEFAULT_WINDOWS=[[65,48,176,230],[442,48,178,230],[752,48,174,230],[1125,48,176,230]];
+const ECO_WIDTH=1366, ECO_HEIGHT=380;
+const ECO_DEFAULT_WINDOWS=[[65,51,176,243],[442,51,178,243],[752,51,174,243],[1125,51,176,243]];
 const ECO_SLOT_RATIO=176/230, ECO_SLOT_COUNTS=[1,2,4,6];
 let ecoConfig=null, ecoFiles=[], ecoTitles={}, editingLayout=false, editingLayoutId=null, layoutDraft={base:'',background_type:'image',background_color:'#000000',windows:[]}, layoutDraftDirty=false, nameModalMode='create', uniformSlots=false, uniformLeader=0;
 let ecoLiveShort=null, ecoLiveEvents=null;
@@ -872,8 +891,8 @@ function layoutBackgroundPath(layout) {
   return layout.base_source === 'builtin' ? '/art/' : '/base/';
 }
 function positionMiniMarquee(element, slot) {
-  element.style.left=(slot[0]/1366*100)+'%'; element.style.top=(slot[1]/360*100)+'%';
-  element.style.width=(slot[2]/1366*100)+'%'; element.style.height=(slot[3]/360*100)+'%';
+  element.style.left=(slot[0]/ECO_WIDTH*100)+'%'; element.style.top=(slot[1]/ECO_HEIGHT*100)+'%';
+  element.style.width=(slot[2]/ECO_WIDTH*100)+'%'; element.style.height=(slot[3]/ECO_HEIGHT*100)+'%';
 }
 function appendMiniMarquee(canvas, card, slot, liveShort) {
   if (!card || !slot || card.source==='blank') return false;
@@ -977,8 +996,8 @@ function renderCustomEditor() {
   });
   layoutDraft.windows.forEach((slot, index) => {
     const el=document.createElement('div'); el.className='layout-slot';
-    el.style.left=(slot[0]/1366*100)+'%'; el.style.top=(slot[1]/360*100)+'%';
-    el.style.width=(slot[2]/1366*100)+'%'; el.style.height=(slot[3]/360*100)+'%';
+    el.style.left=(slot[0]/ECO_WIDTH*100)+'%'; el.style.top=(slot[1]/ECO_HEIGHT*100)+'%';
+    el.style.width=(slot[2]/ECO_WIDTH*100)+'%'; el.style.height=(slot[3]/ECO_HEIGHT*100)+'%';
     el.textContent='Slot '+(index+1);
     if (!uniform.checked || index===uniformLeader) {
       const handle=document.createElement('span'); handle.className='slot-resize'; handle.title='Resize slot';
@@ -996,7 +1015,7 @@ function updateEditorActions() {
   saving.disabled=editing ? !layoutDraftDirty : !draftIsValid();
 }
 function defaultSlots(count) {
-  const h=count>=6?190:count>=4?220:230, w=Math.round(h*ECO_SLOT_RATIO), gap=(1366-count*w)/(count+1), y=Math.round((360-h)/2);
+  const h=count>=6?190:count>=4?220:230, w=Math.round(h*ECO_SLOT_RATIO), gap=(ECO_WIDTH-count*w)/(count+1), y=Math.round((ECO_HEIGHT-h)/2);
   return Array.from({length:count},(_,i)=>[Math.round(gap+(w+gap)*i),y,w,h]);
 }
 function setSlotCount(count) {
@@ -1008,25 +1027,25 @@ function setSlotCount(count) {
   layoutDraftDirty=true; renderCustomEditor();
 }
 function clampSlotSize(slot,w,h) {
-  return [Math.max(0,Math.min(1366-w,slot[0])),Math.max(0,Math.min(360-h,slot[1])),w,h];
+  return [Math.max(0,Math.min(ECO_WIDTH-w,slot[0])),Math.max(0,Math.min(ECO_HEIGHT-h,slot[1])),w,h];
 }
 function applyUniformSize() {
   const lead=layoutDraft.windows[uniformLeader]; if (!lead) return;
   layoutDraft.windows=layoutDraft.windows.map(slot=>clampSlotSize(slot,lead[2],lead[3]));
 }
 function placeSlotElement(el, slot) {
-  el.style.left=(slot[0]/1366*100)+'%'; el.style.top=(slot[1]/360*100)+'%';
-  el.style.width=(slot[2]/1366*100)+'%'; el.style.height=(slot[3]/360*100)+'%';
+  el.style.left=(slot[0]/ECO_WIDTH*100)+'%'; el.style.top=(slot[1]/ECO_HEIGHT*100)+'%';
+  el.style.width=(slot[2]/ECO_WIDTH*100)+'%'; el.style.height=(slot[3]/ECO_HEIGHT*100)+'%';
 }
 function startSlotDrag(event, index, mode) {
   event.preventDefault(); event.stopPropagation();
   const canvas=document.getElementById('layout-canvas'), bounds=canvas.getBoundingClientRect(), start=[...layoutDraft.windows[index]], x0=event.clientX, y0=event.clientY; let moved=false;
   const slotElement=canvas.children[index];
   const move=e=>{
-    const dx=(e.clientX-x0)*1366/bounds.width, dy=(e.clientY-y0)*360/bounds.height;
+    const dx=(e.clientX-x0)*ECO_WIDTH/bounds.width, dy=(e.clientY-y0)*ECO_HEIGHT/bounds.height;
     let [x,y,w,h]=start;
-    if (mode === 'move') { x=Math.max(0,Math.min(1366-w,Math.round(x+dx))); y=Math.max(0,Math.min(360-h,Math.round(y+dy))); }
-    else { w=Math.max(60,Math.min(1366-x,(360-y)*ECO_SLOT_RATIO,Math.round(w+dx))); h=Math.round(w/ECO_SLOT_RATIO); }
+    if (mode === 'move') { x=Math.max(0,Math.min(ECO_WIDTH-w,Math.round(x+dx))); y=Math.max(0,Math.min(ECO_HEIGHT-h,Math.round(y+dy))); }
+    else { w=Math.max(60,Math.min(ECO_WIDTH-x,(ECO_HEIGHT-y)*ECO_SLOT_RATIO,Math.round(w+dx))); h=Math.round(w/ECO_SLOT_RATIO); }
     moved = moved || x!==start[0] || y!==start[1] || w!==start[2] || h!==start[3]; layoutDraft.windows[index]=[x,y,w,h];
     if (mode==='resize' && uniformSlots) applyUniformSize();
     // Move the existing overlay rather than rebuilding the canvas. Rebuilding
@@ -1144,7 +1163,7 @@ async function validateAiKey() {
   button.disabled=false; button.textContent='Validate key';
 }
 function marqueeAiPrompt(request) {
-  return 'Create a background-only digital arcade marquee design. The final physical canvas is exactly 1366 by 360 pixels, an ultra-wide 3.794:1 landscape. Compose important artwork safely within this very wide ratio; the app will crop or fit the returned image to 1366 × 360. Leave uncluttered space for mini-marquee game cards which will be placed later. Do not include readable text, game titles, logos, slot frames, UI, controls, or characters that overlap the card areas. High-quality arcade cabinet artwork. Design request: ' + request.trim();
+  return 'Create a background-only digital arcade marquee design. The final physical canvas is exactly 1366 by 380 pixels, an ultra-wide 3.595:1 landscape. Compose important artwork safely within this very wide ratio; the app will crop or fit the returned image to 1366 × 380. Leave uncluttered space for mini-marquee game cards which will be placed later. Do not include readable text, game titles, logos, slot frames, UI, controls, or characters that overlap the card areas. High-quality arcade cabinet artwork. Design request: ' + request.trim();
 }
 async function generateOpenAiImage(key, prompt, model) {
   const r=await fetch('https://api.openai.com/v1/images/generations',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model,prompt,size:'1536x1024',quality:'medium',output_format:'png'})});
@@ -1644,10 +1663,12 @@ class OverlayServer:
                 if existing is None:
                     ident = "custom-%d" % int(time.time() * 1000)
                     layouts.append({"id": ident, "name": name, "base": base, "background_type": background_type,
-                                    "background_color": background_color, "windows": parsed})
+                                    "background_color": background_color, "windows": parsed,
+                                    "canvas_height": ELECTROCOIN_CANVAS_HEIGHT})
                 else:
                     layouts[existing] = {"id": ident, "name": name, "base": base, "background_type": background_type,
-                                         "background_color": background_color, "windows": parsed}
+                                         "background_color": background_color, "windows": parsed,
+                                         "canvas_height": ELECTROCOIN_CANVAS_HEIGHT}
                 save_custom_layouts(layouts)
                 cfg = electro_config(server.display.electro_config)
                 if existing is None:
@@ -2002,11 +2023,13 @@ class Display:
 
     def _electro_surface(self):
         surf = pygame.Surface(self.phys); surf.fill(BG)
-        vp = pygame.Rect(0, 0, self.phys[0], min(ELECTROCOIN_VIEWPORT_HEIGHT, self.phys[1]))
+        diagnostic = BUILTIN_LAYOUTS.get(self.electro_config.get("layout_id"), {})
+        source_height = diagnostic.get("viewport_height", ELECTROCOIN_VIEWPORT_HEIGHT)
+        vp = pygame.Rect(0, 0, self.phys[0], min(source_height, self.phys[1]))
         if self.electro_config.get("background_type") == "color": surf.fill(_colour_rgb(self.electro_config.get("background_color")), vp)
         base = self._electro_base()
         if base: surf.blit(pygame.transform.smoothscale(base, vp.size), vp)
-        sx, sy = vp.w / 1366, vp.h / 360
+        sx, sy = vp.w / ELECTROCOIN_CANVAS_WIDTH, vp.h / source_height
         for r, card in zip(self.electro_config["windows"], self.electro_config["cards"]):
             target = pygame.Rect(round(r[0]*sx), round(r[1]*sy), round(r[2]*sx), round(r[3]*sy))
             stem = self.electro_neosd["short"] if card["source"] == "neosd" and self.electro_neosd else card["art"] if card["source"] == "fixed" else ""
