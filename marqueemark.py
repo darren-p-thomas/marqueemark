@@ -698,12 +698,12 @@ ADMIN_HTML = """<!DOCTYPE html>
   .cal-col { display: flex; flex-direction: column; gap: 14px; min-width: 220px; }
   .cal-row { display: flex; align-items: center; gap: 8px; }
   .cal-row .label { color: #999; font-size: 0.82rem; width: 44px; }
-  .eco-card { appearance: none; -webkit-appearance: none; min-width: 290px; box-sizing: border-box;
-              padding: 9px 38px 9px 12px; border: 1px solid #465579; border-radius: 8px;
+  .eco-card { appearance: none; -webkit-appearance: none; min-width: 240px; box-sizing: border-box;
+              padding: 8px 34px 8px 11px; border: 1px solid #465579; border-radius: 8px;
               color: #f1f4ff; background-color: #1b2132;
               background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='8' viewBox='0 0 14 8'%3E%3Cpath d='M1 1l6 6 6-6' fill='none' stroke='%23cbd6ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-              background-repeat: no-repeat; background-position: right 13px center; background-size: 13px 8px;
-              font: 600 .91rem inherit; line-height: 1.2; box-shadow: inset 0 1px 0 rgba(255,255,255,.045); cursor: pointer; }
+              background-repeat: no-repeat; background-position: right 12px center; background-size: 12px 7px;
+              font: 600 .85rem inherit; line-height: 1.2; box-shadow: inset 0 1px 0 rgba(255,255,255,.045); cursor: pointer; }
   .eco-card:hover { border-color: #728bc8; background-color: #20283d; }
   .eco-card:focus { outline: 2px solid #86a8ff; outline-offset: 2px; border-color: #86a8ff; }
   .eco-card option, .eco-card optgroup { background: #1b2132; color: #f1f4ff; }
