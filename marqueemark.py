@@ -3208,6 +3208,16 @@ def main():
     except OSError as e:
         print("[MarqueeMark] overlay disabled (%s)" % e)
 
+    # ``Display(...)`` receives the persisted type as its initial hint, but
+    # HDMI/KMS can retain the old framebuffer during a cold service start.
+    # Reassert an explicitly saved choice after startup so the physical panel
+    # is redrawn with the same renderer Admin reports. Do not do this before
+    # first-run setup: an unset Pi should retain its normal CLI fallback.
+    configured_mode = saved_display_mode()
+    if configured_mode:
+        display.set_layout_mode(configured_mode)
+        print("[MarqueeMark] startup display mode enforced: %s" % configured_mode)
+
     def publish(game):
         if overlay:
             overlay.publish(game)
