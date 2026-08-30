@@ -77,7 +77,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.5-layout-modes.4"
+VERSION = "1.3.5-layout-modes.5"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -99,15 +99,15 @@ ELECTROCOIN_BASE_SIZE = (ELECTROCOIN_CANVAS_WIDTH, ELECTROCOIN_CANVAS_HEIGHT)
 ELECTROCOIN_VIEWPORT_HEIGHT = ELECTROCOIN_CANVAS_HEIGHT
 ELECTROCOIN_SLOT_COUNTS = (1, 2, 4, 6)
 ELECTROCOIN_SLOT_RATIO = 176 / 230
-ELECTROCOIN_DEFAULT = {"base": "electrocoin-alt-9-fullheight.png",
+ELECTROCOIN_DEFAULT = {"base": "electrocoin-alt-9-bottom-fixed.png",
     "base_source": "builtin",
     "layout_id": "electrocoin",
     "cards": [{"source": "fixed", "art": ""}, {"source": "fixed", "art": ""},
               {"source": "fixed", "art": ""}, {"source": "neosd", "art": ""}],
-    "windows": [[356, 33, 116, 204], [530, 33, 120, 204],
-                [714, 33, 121, 204], [893, 33, 120, 204]]}
+    "windows": [[356, 30, 116, 188], [530, 30, 120, 188],
+                [714, 30, 121, 188], [893, 30, 120, 188]]}
 BUILTIN_LAYOUTS = {
-    "electrocoin": {"id": "electrocoin", "name": "Electrocoin 4 Slot", "base": "electrocoin-alt-9-fullheight.png",
+    "electrocoin": {"id": "electrocoin", "name": "Electrocoin 4 Slot", "base": "electrocoin-alt-9-bottom-fixed.png",
                     "base_source": "builtin", "background_type": "image", "background_color": "#000000",
                     "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]]},
     "neogeo-one-slot": {"id": "neogeo-one-slot", "name": "Neo Geo 1 Slot", "base": "neogeo-one-slot.png",
