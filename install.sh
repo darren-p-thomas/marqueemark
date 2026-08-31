@@ -10,7 +10,7 @@
 #   - creates /opt/marqueemark and downloads marqueemark.py
 #   - installs a starter art/generic.png (fallback marquee) if missing
 #   - grants your user serial + display access (dialout/video/render/input)
-#   - adds the one-command sudoers rule used for display sleep
+#   - adds narrowly-scoped sudoers rules for display sleep and clean shutdown
 #   - sets the Pi to boot to the console (MarqueeMark draws the screen itself)
 #   - installs and starts the systemd service
 #   - reboots at the end (10 second countdown, Ctrl+C to cancel)
@@ -22,7 +22,7 @@
 
 set -euo pipefail
 
-REPO_RAW="https://raw.githubusercontent.com/beastech/marqueemark/main"
+REPO_RAW="https://raw.githubusercontent.com/darren-p-thomas/marqueemark/main"
 INSTALL_DIR="/opt/marqueemark"
 SERVICE="/etc/systemd/system/marqueemark.service"
 
@@ -44,7 +44,7 @@ sudo apt-get install -y -qq python3-serial python3-pygame python3-pil
 
 # ----------------------------------------------------------------- files
 say "Setting up $INSTALL_DIR"
-sudo mkdir -p "$INSTALL_DIR/art" "$INSTALL_DIR/bases"
+sudo mkdir -p "$INSTALL_DIR/art" "$INSTALL_DIR/bases" "$INSTALL_DIR/cache/mini-marquees"
 sudo chown -R "$USER_NAME:$USER_NAME" "$INSTALL_DIR"
 
 # Always try to fetch the latest version, so re-running this script is
@@ -129,15 +129,21 @@ install_builtin_base() {
 }
 say "Installing built-in marquee templates"
 install_builtin_base "electrocoin-base.png"
+install_builtin_base "electrocoin-alt-9-bottom-fixed.png"
 install_builtin_base "neogeo-one-slot.png"
+install_builtin_base "neogeo-two-slot-red-left-one-slot-scale-v12.png"
+install_builtin_base "neogeo-four-slot-red-low-v5.png"
+install_builtin_base "neogeo-six-slot-red-clean-final-v8.png"
 install_builtin_base "ultrawide-viewport-test.png"
 
 # ----------------------------------------------------------- permissions
 say "Granting serial and display access"
 sudo usermod -aG dialout,video,render,input "$USER_NAME"
 
-say "Adding display-sleep sudoers rule (one specific command only)"
-echo "$USER_NAME ALL=(root) NOPASSWD: /usr/bin/tee /sys/class/graphics/fb0/blank" \
+say "Adding display-sleep and clean-shutdown sudoers rules"
+printf '%s\n' \
+  "$USER_NAME ALL=(root) NOPASSWD: /usr/bin/tee /sys/class/graphics/fb0/blank" \
+  "$USER_NAME ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff" \
   | sudo tee /etc/sudoers.d/marqueemark >/dev/null
 sudo chmod 440 /etc/sudoers.d/marqueemark
 
@@ -175,7 +181,22 @@ if [ -n "$EXTRA_ARGS" ]; then
   RUN_ARGS="$EXTRA_ARGS"
   say "Keeping your existing options: $RUN_ARGS"
 else
-  RUN_ARGS="--rotate $ROTATE"
+  DISPLAY_LAYOUT="mini"
+  if [ -t 0 ]; then
+    echo
+    echo "Which display are you configuring?"
+    echo "  1) Mini Marquee (original portrait display)"
+    echo "  2) Ultrawide Marquee (wide digital display)"
+    read -r -p "Choose 1 or 2 [1]: " DISPLAY_CHOICE
+    case "$DISPLAY_CHOICE" in
+      2) DISPLAY_LAYOUT="ultrawide" ;;
+      *) DISPLAY_LAYOUT="mini" ;;
+    esac
+  else
+    echo "  non-interactive install: defaulting to Mini Marquee"
+    echo "  (change later from Admin, or use --layout ultrawide in the service)"
+  fi
+  RUN_ARGS="--rotate $ROTATE --layout $DISPLAY_LAYOUT"
 fi
 
 # ---------------------------------------------------------------- service
