@@ -26,6 +26,12 @@ reversible.
   cabinet powering on, before you touch anything
 - **Display sleep**: when the cabinet turns off, the panel's backlight
   shuts down too; it wakes automatically with the cab
+- **Safe Pi shutdown after cabinet power-off**: optionally detect the NeoSD
+  Pro disconnect when a shared cabinet/Pi power switch is turned off, play a
+  native reverse Neo Geo boot sequence, then halt the Pi cleanly after a
+  configurable 5–600 second delay. It is disabled by default and normal game
+  inactivity never triggers it. Browser and on-marquee previews are safe and
+  never power off the Pi.
 - **Calibration from your browser**: position, resize, tilt, and flip the
   image from the admin page on any phone or PC while watching the panel
   update live. No SSH, no keyboard, no Linux required. Proportions are
@@ -106,6 +112,16 @@ The built-in template library includes **Electrocoin 4 Slot** (with the
 Electrocoin-style speaker grilles and four framed card windows), plus **Neo
 Geo one-, two-, four-, and six-slot** templates. The one-slot design uses its
 original black “Now Featuring” window for the generated mini marquee.
+
+The template library includes the locked, aspect-preserved red Neo Geo
+two-, four-, and six-slot panels alongside the one-slot design. Built-in
+marquees remain in a consistent 1-, 2-, 4-, 6-slot, then Electrocoin order;
+the active marquee is highlighted in place.
+
+For particularly text-heavy mini marquees, MarqueeMark can keep exact-size
+high-quality variants in its private `cache/mini-marquees` directory. The
+shared `art/` directory remains original game artwork only, so it is safe to
+use alongside other frontends.
 
 MarqueeMark's Admin page also works with HDMI disconnected, so layouts can be
 created and managed while the cabinet is powered down. Reconnect the display

@@ -10,7 +10,7 @@
 #   - creates /opt/marqueemark and downloads marqueemark.py
 #   - installs a starter art/generic.png (fallback marquee) if missing
 #   - grants your user serial + display access (dialout/video/render/input)
-#   - adds the one-command sudoers rule used for display sleep
+#   - adds narrowly-scoped sudoers rules for display sleep and clean shutdown
 #   - sets the Pi to boot to the console (MarqueeMark draws the screen itself)
 #   - installs and starts the systemd service
 #   - reboots at the end (10 second countdown, Ctrl+C to cancel)
@@ -44,7 +44,7 @@ sudo apt-get install -y -qq python3-serial python3-pygame python3-pil
 
 # ----------------------------------------------------------------- files
 say "Setting up $INSTALL_DIR"
-sudo mkdir -p "$INSTALL_DIR/art" "$INSTALL_DIR/bases"
+sudo mkdir -p "$INSTALL_DIR/art" "$INSTALL_DIR/bases" "$INSTALL_DIR/cache/mini-marquees"
 sudo chown -R "$USER_NAME:$USER_NAME" "$INSTALL_DIR"
 
 # Always try to fetch the latest version, so re-running this script is
@@ -131,14 +131,19 @@ say "Installing built-in marquee templates"
 install_builtin_base "electrocoin-base.png"
 install_builtin_base "electrocoin-alt-9-bottom-fixed.png"
 install_builtin_base "neogeo-one-slot.png"
+install_builtin_base "neogeo-two-slot-red-left-one-slot-scale-v12.png"
+install_builtin_base "neogeo-four-slot-red-low-v5.png"
+install_builtin_base "neogeo-six-slot-red-clean-final-v8.png"
 install_builtin_base "ultrawide-viewport-test.png"
 
 # ----------------------------------------------------------- permissions
 say "Granting serial and display access"
 sudo usermod -aG dialout,video,render,input "$USER_NAME"
 
-say "Adding display-sleep sudoers rule (one specific command only)"
-echo "$USER_NAME ALL=(root) NOPASSWD: /usr/bin/tee /sys/class/graphics/fb0/blank" \
+say "Adding display-sleep and clean-shutdown sudoers rules"
+printf '%s\n' \
+  "$USER_NAME ALL=(root) NOPASSWD: /usr/bin/tee /sys/class/graphics/fb0/blank" \
+  "$USER_NAME ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff" \
   | sudo tee /etc/sudoers.d/marqueemark >/dev/null
 sudo chmod 440 /etc/sudoers.d/marqueemark
 

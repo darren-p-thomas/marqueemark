@@ -3,6 +3,29 @@
 This fork is based on MarqueeMark v1.3.4 by beastech. Version suffixes
 identify the Electrocoin / Digital Marquee work in this repository.
 
+## Unreleased — locked Neo Geo marquee release
+
+- Finalised the built-in Neo Geo 1 Slot, 2 Slot, 4 Slot, and 6 Slot artwork,
+  all with consistent naming and stable library ordering. The active marquee
+  remains highlighted in place rather than moving to the front of the list.
+- Added a centred live “On display” preview that lists every assigned card,
+  including the active NeoSD Pro game.
+- Added a private exact-size mini-marquee quality cache. Generated variants
+  now live in `cache/mini-marquees`, leaving shared game art untouched.
+- Improved the Admin marquee-library flow: built-ins and saved custom
+  marquees appear before the creation action, and an empty custom library has
+  its own create call to action.
+
+- Added an optional, configurable cabinet-safe Pi shutdown flow. When the
+  NeoSD USB device disappears, MarqueeMark can show a Game Over sequence and
+  cleanly halt the Pi after a user-selected 5–600 second delay.
+- Added an explicit Advanced settings opt-in before cabinet-power controls
+  become interactive. The feature is disabled by default and never treats
+  normal game inactivity as a power-off signal.
+- Replaced the experimental video shutdown art with a native reverse Neo Geo
+  boot sequence: finished boot screen, mirrored logo, GAME OVER, then black.
+  Added safe browser and on-marquee previews that never halt the Pi.
+
 ## v1.3.5-layout-modes.4 — Electrocoin full-height correction
 
 - Removed the remaining black padding from the refreshed Electrocoin 4 Slot

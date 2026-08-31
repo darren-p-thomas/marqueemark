@@ -68,6 +68,7 @@ import io
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -77,7 +78,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.5-layout-modes.5"
+VERSION = "1.3.6-cabinet-shutdown.1"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -86,12 +87,14 @@ BG = (0, 0, 0)
 
 RAM_SLOT = 4  # zero-based: flash slots 1-4 announce as 0-3, RAM as 4
 ART_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "art")
+CARD_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "mini-marquees")
 BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bases")
 LASTGAME_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lastgame.json")
 GENERIC = "generic"  # art/generic.png — fallback marquee for the overlay
 ELECTROCOIN_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "electrocoin.json")
 ELECTROCOIN_LAYOUTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "digital_layouts.json")
 DISPLAY_MODE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "display_mode.json")
+CABINET_SHUTDOWN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cabinet_shutdown.json")
 GAME_TITLES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "game_titles.json")
 ELECTROCOIN_CANVAS_WIDTH = 1366
 ELECTROCOIN_CANVAS_HEIGHT = 380
@@ -113,26 +116,75 @@ BUILTIN_LAYOUTS = {
     "neogeo-one-slot": {"id": "neogeo-one-slot", "name": "Neo Geo 1 Slot", "base": "neogeo-one-slot.png",
                         "base_source": "builtin", "background_type": "image", "background_color": "#000000",
                         "windows": [[1053, 36, 231, 306]]},
-    "neogeo-two-slot": {"id": "neogeo-two-slot", "name": "Neo Geo 2 Slot", "base": "neogeo-two-slot.png",
-                         "base_source": "builtin", "background_type": "image", "background_color": "#000000",
-                         "windows": [[796, 67, 177, 238], [1063, 67, 177, 238]]},
-    "neogeo-four-slot": {"id": "neogeo-four-slot", "name": "Neo Geo 4 Slot", "base": "neogeo-four-slot.png",
-                          "base_source": "builtin", "background_type": "image", "background_color": "#000000",
-                          "windows": [[251, 121, 153, 200], [488, 121, 153, 200],
-                                      [725, 121, 153, 200], [962, 121, 153, 200]]},
-    "neogeo-six-slot": {"id": "neogeo-six-slot", "name": "Neo Geo 6 Slot", "base": "neogeo-six-slot.png",
-                         "base_source": "builtin", "background_type": "image", "background_color": "#000000",
-                         "windows": [[110, 131, 123, 162], [315, 131, 123, 162],
-                                     [518, 131, 123, 162], [725, 131, 123, 162],
-                                     [929, 131, 123, 162], [1134, 131, 123, 162]]},
+    "neogeo-two-slot-red": {"id": "neogeo-two-slot-red", "name": "Neo Geo 2 Slot", "base": "neogeo-two-slot-red-left-one-slot-scale-v12.png",
+                              "base_source": "builtin", "background_type": "image", "background_color": "#000000",
+                              "windows": [[788, 36, 231, 306], [1073, 36, 231, 306]]},
+    "neogeo-four-slot-red": {"id": "neogeo-four-slot-red", "name": "Neo Geo 4 Slot", "base": "neogeo-four-slot-red-low-v5.png",
+                               "base_source": "builtin", "background_type": "image", "background_color": "#000000",
+                               "windows": [[191, 105, 149, 227], [463, 105, 149, 227],
+                                           [735, 105, 149, 227], [1007, 105, 149, 227]]},
+    "neogeo-six-slot-red-clean": {"id": "neogeo-six-slot-red-clean", "name": "Neo Geo 6 Slot", "base": "neogeo-six-slot-red-clean-final-v8.png",
+                                    "base_source": "builtin", "background_type": "image", "background_color": "#000000",
+                                    "windows": [[59, 105, 149, 232], [280, 105, 149, 232],
+                                                [501, 105, 149, 232], [722, 105, 149, 232],
+                                                [943, 105, 149, 232], [1164, 105, 149, 232]]},
     # A diagnostic, not a normal cabinet template. Its image is deliberately
     # 420px tall so panels with a different visible height can be measured.
     "viewport-test": {"id": "viewport-test", "name": "Advanced: Viewport Height Test", "base": "ultrawide-viewport-test.png",
                       "base_source": "builtin", "background_type": "image", "background_color": "#000000",
                       "viewport_height": 420, "diagnostic": True, "windows": []},
 }
+# The cabinet templates are intentionally shown in this fixed order.  The
+# active layout keeps its own highlight and live dot rather than being moved.
+BUILTIN_LAYOUT_ORDER = (
+    "neogeo-one-slot",
+    "neogeo-two-slot-red",
+    "neogeo-four-slot-red",
+    "neogeo-six-slot-red-clean",
+    "electrocoin",
+    "viewport-test",
+)
 
 DISPLAY_MODES = ("mini", "ultrawide")
+CABINET_SHUTDOWN_DEFAULT = {"enabled": False, "delay_seconds": 10}
+CABINET_SHUTDOWN_MIN_SECONDS = 5
+CABINET_SHUTDOWN_MAX_SECONDS = 600
+CABINET_SHUTDOWN_LOCK = threading.Lock()
+CABINET_SHUTDOWN_RUNTIME = {"state": "disabled", "remaining_seconds": None}
+
+def _cabinet_shutdown_config(value=None):
+    value = value if isinstance(value, dict) else {}
+    try:
+        delay = int(value.get("delay_seconds", CABINET_SHUTDOWN_DEFAULT["delay_seconds"]))
+    except (TypeError, ValueError):
+        delay = CABINET_SHUTDOWN_DEFAULT["delay_seconds"]
+    return {"enabled": bool(value.get("enabled", False)),
+            "delay_seconds": max(CABINET_SHUTDOWN_MIN_SECONDS,
+                                 min(CABINET_SHUTDOWN_MAX_SECONDS, delay))}
+
+def load_cabinet_shutdown_config():
+    try:
+        with open(CABINET_SHUTDOWN_PATH) as f:
+            return _cabinet_shutdown_config(json.load(f))
+    except (OSError, ValueError):
+        return dict(CABINET_SHUTDOWN_DEFAULT)
+
+def save_cabinet_shutdown_config(value):
+    config = _cabinet_shutdown_config(value)
+    with open(CABINET_SHUTDOWN_PATH, "w") as f:
+        json.dump(config, f, indent=2)
+    return config
+
+def set_cabinet_shutdown_runtime(state, remaining_seconds=None):
+    with CABINET_SHUTDOWN_LOCK:
+        CABINET_SHUTDOWN_RUNTIME["state"] = state
+        CABINET_SHUTDOWN_RUNTIME["remaining_seconds"] = remaining_seconds
+
+def cabinet_shutdown_payload():
+    config = load_cabinet_shutdown_config()
+    with CABINET_SHUTDOWN_LOCK:
+        runtime = dict(CABINET_SHUTDOWN_RUNTIME)
+    return dict(config, runtime=runtime)
 
 def saved_display_mode():
     """Return the explicit Pi-side display choice, or None before setup."""
@@ -252,6 +304,17 @@ def load_game_titles():
 
 GAME_TITLES = load_game_titles()
 
+# Panel templates and calibration/reference backgrounds share the art folder
+# with game marquees so the renderer can load them directly.  They are not
+# games, however: never offer them in either of the game-art selectors.
+REFERENCE_ART_PREFIXES = ("electrocoin-", "neogeo-", "ultrawide-")
+CARD_CACHE_FILENAME = re.compile(r"^.+--\d+x\d+\.png$")
+
+def is_game_art_filename(name):
+    return (isinstance(name, str) and name.endswith(".png") and
+            not name.startswith(REFERENCE_ART_PREFIXES) and
+            not CARD_CACHE_FILENAME.fullmatch(name))
+
 def electro_config(raw=None):
     cfg = {"base": ELECTROCOIN_DEFAULT["base"], "cards": [dict(c) for c in ELECTROCOIN_DEFAULT["cards"]],
            "windows": [list(r) for r in ELECTROCOIN_DEFAULT["windows"]], "base_source": "builtin", "background_type": "image", "background_color": "#000000",
@@ -344,7 +407,7 @@ def save_electrocoin_config(cfg):
 
 def electro_payload(cfg):
     payload = dict(cfg)
-    payload["layouts"] = [builtin_layout(ident) for ident in BUILTIN_LAYOUTS] + load_custom_layouts()
+    payload["layouts"] = [builtin_layout(ident) for ident in BUILTIN_LAYOUT_ORDER] + load_custom_layouts()
     return payload
 
 def activate_layout(cfg, layout, layouts=None):
@@ -397,7 +460,7 @@ def remote_art_list(base_url):
         with urllib.request.urlopen(base_url.rstrip("/") + "/list",
                                     timeout=3) as r:
             names = json.loads(r.read().decode())
-        return [n for n in names if isinstance(n, str) and n.endswith(".png")]
+        return [n for n in names if is_game_art_filename(n)]
     except Exception:
         return None
 
@@ -619,6 +682,13 @@ OVERLAY_HTML = """<!DOCTYPE html>
 </html>
 """
 
+SHUTDOWN_PREVIEW_HTML = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MarqueeMark — Shutdown preview</title><style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#090a10;color:#e8e8f0;font-family:system-ui,sans-serif}
+main{width:min(1366px,96vw)}h1{font-size:1rem;margin:0 0 12px;color:#cdd3e6}.frame{position:relative;aspect-ratio:1366/380;display:grid;place-items:center;overflow:hidden;background:#000;border:1px solid #5e6380;box-shadow:0 18px 60px #000}.logo{font:700 clamp(2rem,7vw,6rem) Georgia,serif;letter-spacing:-.07em}.sub{font-weight:800;letter-spacing:.08em;font-size:clamp(.7rem,1.7vw,1.5rem)}.snk{font-weight:900;font-style:italic;font-size:clamp(1rem,2.2vw,2rem)}.boot,.over{text-align:center}.over{font-size:clamp(2rem,6vw,5rem);font-weight:900}.mirror{background:#f8f8f8;color:#080808;width:100%;height:100%;display:grid;place-items:center}.replay{color:#bdd3ff;text-decoration:underline;cursor:pointer}p{color:#aab1c1;font-size:.85rem}
+</style></head><body><main><h1>Shutdown sequence preview</h1><div class="frame" id="frame"></div><p>Native marquee sequence: boot screen, reverse logo, GAME OVER, then black. <span class="replay" id="replay">Replay</span></p></main><script>const f=document.getElementById('frame');let start=performance.now();function draw(now){const t=((now-start)/1000)%10;if(t<.9)f.innerHTML='<div class="boot"><div class="logo">NEO·GEO</div><div class="sub">MAX 330 MEGA<br>PRO-GEAR SPEC</div><div class="snk">SNK</div></div>';else if(t<2.1){const p=(t-.9)/1.2;if(p<.5)f.innerHTML='<div class="logo" style="transform:scaleX('+(1-p*2)+')">NEO·GEO</div>';else f.innerHTML='<div class="mirror"><div class="logo" style="transform:scaleX(-'+((p-.5)*2)+')">NEO·GEO</div></div>';}else if(t<7.6)f.innerHTML='<div class="mirror"><div class="logo" style="transform:scaleX(-1)">NEO·GEO</div></div>';else if(t<9.45)f.innerHTML='<div class="over">GAME OVER<div class="sub" style="margin-top:.8rem;color:#aaa">CABINET POWER OFF</div></div>';else f.innerHTML='';requestAnimationFrame(draw)}requestAnimationFrame(draw);document.getElementById('replay').onclick=()=>start=performance.now();</script></body></html>"""
+
 
 ADMIN_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -632,6 +702,7 @@ ADMIN_HTML = """<!DOCTYPE html>
          color: #e8e8f0; }
   header { padding: 16px 24px; background: #1a1a28; border-bottom: 2px solid #c8102e; }
   .header-row { max-width: 1100px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+  .header-actions { display: flex; align-items: center; gap: 8px; }
   h1 { margin: 0; font-size: 1.2rem; letter-spacing: 0.04em; }
   h1 span { color: #c8102e; }
   main { padding: 24px; max-width: 1100px; margin: 0 auto; }
@@ -656,6 +727,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   .display-mode-value { display: block; font-size: .84rem; font-weight: 650; }
   .display-mode-button .mode-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #63d986; margin-right: 6px; }
   .display-mode-button.needs-setup .mode-dot { background: #e6b94f; }
+  .settings-button { width: 42px; min-height: 42px; padding: 0; font-size: 1.25rem; }
   .mode-options, .admin-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
   .mode-option { min-width: 160px; text-align: left; padding: 10px 13px; border: 1px solid #30354b;
                  border-radius: 8px; background: #171a26; color: #9399aa; cursor: pointer; }
@@ -747,13 +819,20 @@ ADMIN_HTML = """<!DOCTYPE html>
   #layout-preview-canvas { position: relative; width: 100%; aspect-ratio: 1366 / 380; margin-top: 12px;
                            background: #050508 center / cover no-repeat; border: 1px solid #5e6380; }
   #live-layout-panel { margin: 14px 0 24px; padding: 14px; border: 1px solid #30354b; border-radius: 10px; background: #141520; }
-  #live-layout-canvas { position: relative; width: min(720px,100%); aspect-ratio: 1366 / 380; margin-top: 10px;
+  #live-layout-canvas { position: relative; width: min(720px,100%); aspect-ratio: 1366 / 380; margin: 10px auto 0;
                          overflow: hidden; background: #050508 center / cover no-repeat; border: 1px solid #5e6380; }
   #live-layout-canvas.empty { display: grid; place-items: center; background: #090a11 !important; }
   .live-layout-empty { max-width: 420px; padding: 16px; text-align: center; }
   .live-layout-empty strong { display: block; font-size: 1rem; }
   .live-layout-empty p { margin: 6px 0 12px; color: #aab1c1; font-size: .84rem; }
   .live-layout-empty .cal-row { justify-content: center; flex-wrap: wrap; }
+  .custom-layout-empty { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px;
+                         border: 1px dashed #3d4563; border-radius: 8px; color: #aab1c1; font-size: .88rem; }
+  .advanced-enable { padding: 12px; border: 1px solid #3d4563; border-radius: 8px; background: #11131d; }
+  .advanced-enable label { font-weight: 700; }
+  .advanced-enable p { margin: 6px 0 0; }
+  fieldset.advanced-settings-content { min-width: 0; margin: 20px 0 0; padding: 0; border: 0; }
+  fieldset.advanced-settings-content:disabled { opacity: .42; }
   .marquee-card-image { position: absolute; object-fit: fill; }
   .neosd-placeholder { position: absolute; box-sizing: border-box; display: flex; flex-direction: column;
                        align-items: center; justify-content: center; gap: 3px; overflow: hidden;
@@ -785,9 +864,12 @@ ADMIN_HTML = """<!DOCTYPE html>
 <body>
 <header><div class="header-row"><h1>Marquee<span>Mark</span> — Admin
   <small style="color:#888;font-weight:normal;font-size:0.7em">v{{VERSION}}</small></h1>
-  <button id="display-mode-change" type="button" class="btn display-mode-button" aria-label="Change monitor output type">
-    <span class="display-mode-label">MONITOR OUTPUT</span><span class="display-mode-value"><span class="mode-dot"></span><span id="display-mode-summary">Display setup needed</span> <span id="display-mode-action">· Set up</span></span>
-  </button>
+  <div class="header-actions">
+    <button id="display-mode-change" type="button" class="btn display-mode-button" aria-label="Change monitor output type">
+      <span class="display-mode-label">CURRENTLY SELECTED MONITOR OUTPUT</span><span class="display-mode-value"><span class="mode-dot"></span><span id="display-mode-summary">Display setup needed</span> <span id="display-mode-action">· Set up</span></span>
+    </button>
+    <button id="advanced-settings-open" type="button" class="btn settings-button" title="Advanced settings" aria-label="Advanced settings">⚙</button>
+  </div>
 </div></header>
 <main>
 
@@ -804,9 +886,9 @@ ADMIN_HTML = """<!DOCTYPE html>
   </section>
   <h3 class="subheading">Marquee layout</h3>
   <p class="hint">Choose a saved layout, or create a new one. Layouts contain only the background and mini-marquee positions.</p>
-  <div class="create-layout-cta"><div><strong>Create your own layout</strong><span>Upload or generate a background, then position 1, 2, 4, or 6 mini-marquee windows.</span></div><button id="create-custom-layout" type="button" class="btn primary">+ Create custom layout</button></div>
-  <div class="layout-library-group"><p class="layout-library-title">Built-in templates</p><div id="eco-builtins" class="template-pills" role="radiogroup" aria-label="Built-in marquee templates"></div></div>
-  <div class="layout-library-group"><p class="layout-library-title">Your layouts</p><div id="eco-customs" class="template-pills" role="radiogroup" aria-label="Your marquee layouts"></div></div>
+  <div class="layout-library-group"><p class="layout-library-title">Built in Marquees</p><div id="eco-builtins" class="template-pills" role="radiogroup" aria-label="Built in marquees"></div></div>
+  <div class="layout-library-group"><p class="layout-library-title">Your Custom Marquees</p><div id="eco-customs" class="template-pills" role="radiogroup" aria-label="Your custom marquees"></div></div>
+  <div class="create-layout-cta"><div><strong>Create your own marquee</strong><span>Upload or generate a background, then position 1, 2, 4, or 6 mini-marquee windows.</span></div><button id="create-custom-layout" type="button" class="btn primary">+ Create custom layout</button></div>
   <details class="advanced-diagnostics"><summary>Advanced diagnostics</summary><p class="hint" style="margin:8px 0 0">Tools for measuring or troubleshooting an unusual display.</p><div id="eco-diagnostics" class="template-pills" role="radiogroup" aria-label="Advanced display diagnostics"></div></details>
   <div id="custom-editor" class="hidden">
     <p class="hint">Choose either an image or a solid colour background, then position the mini-marquee objects over it. Slot labels are editing guides only.</p>
@@ -871,6 +953,25 @@ ADMIN_HTML = """<!DOCTYPE html>
     <p id="display-mode-keep-copy" class="hint"></p>
     <p id="display-mode-countdown" style="font-weight:700"></p>
     <div class="cal-actions"><button id="display-mode-keep-confirm" class="btn primary">Keep this display type</button><button id="display-mode-keep-revert" class="btn">Revert now</button></div>
+  </div>
+</div>
+<div id="advanced-settings-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="advanced-settings-title">
+  <div class="modal"><button class="modal-close" id="advanced-settings-close" aria-label="Close">×</button>
+    <h2 id="advanced-settings-title">Advanced settings</h2>
+    <div class="advanced-enable"><label><input id="advanced-settings-enabled" type="checkbox"> Enable advanced settings</label>
+      <p class="hint">Advanced settings can change how MarqueeMark and the cabinet behave. Enable them only if you understand the options below.</p>
+    </div>
+    <fieldset id="advanced-settings-content" class="advanced-settings-content" disabled>
+      <h3 class="subheading">Auto Shutdown of Pi Safely Upon Cabinet Power-off</h3>
+      <p class="hint">When cabinet power is switched off, the NeoSD Pro disconnects. After the delay below, MarqueeMark shows the shutdown screen and safely shuts down the Pi. Normal game inactivity will never trigger a shutdown.</p>
+      <div class="cal-row">
+        <label><input id="shutdown-enabled" type="checkbox"> Turn on automatic Pi shutdown</label>
+        <label>After cabinet power-off is detected, wait <input id="shutdown-delay" type="number" min="5" max="600" step="1" value="10" style="width:5.5em"> seconds before safely shutting down the Pi.</label>
+        <button class="btn primary" id="shutdown-save">Save auto-shutdown setting</button>
+      </div>
+      <div class="cal-actions"><button class="btn" id="shutdown-preview-display">Preview on marquee</button><button class="btn" id="shutdown-preview-browser">Open browser preview</button></div>
+      <p id="shutdown-now" class="hint" style="margin-bottom:0"></p>
+    </fieldset>
   </div>
 </div>
 
@@ -1012,7 +1113,7 @@ const ECO_WIDTH=1366, ECO_HEIGHT=380;
 const ECO_DEFAULT_WINDOWS=[[65,51,176,243],[442,51,178,243],[752,51,174,243],[1125,51,176,243]];
 const ECO_SLOT_RATIO=176/230, ECO_SLOT_COUNTS=[1,2,4,6];
 let ecoConfig=null, ecoFiles=[], ecoTitles={}, editingLayout=false, editingLayoutId=null, layoutDraft={base:'',background_type:'image',background_color:'#000000',windows:[]}, layoutDraftDirty=false, nameModalMode='create', uniformSlots=false, uniformLeader=0;
-let ecoLiveShort=null, ecoLiveEvents=null, layoutSelectionRequest=0;
+let ecoLiveShort=null, ecoLiveEvents=null, layoutSelectionRequest=0, livePreviewRequest=0;
 const blankCard=()=>({source:'blank',art:''});
 
 function selectedLayout() {
@@ -1046,8 +1147,16 @@ function appendMiniMarquee(canvas, card, slot, liveShort) {
   const art=document.createElement('img'); art.className='marquee-card-image'; art.src='/art/'+encodeURIComponent(stem)+'.png'; art.alt='';
   art.onerror=()=>art.remove(); positionMiniMarquee(art,slot); canvas.appendChild(art); return true;
 }
+function liveCardLabel(card, index) {
+  const slot='Card '+(index+1)+': ';
+  if (!card || card.source==='blank') return slot+'Blank';
+  if (card.source==='neosd') return slot+'NeoSD Pro'+(ecoLiveShort ? ': '+(ecoTitles[ecoLiveShort]||ecoLiveShort) : ' (live marquee)');
+  if (card.source==='fixed' && card.art) return slot+(ecoTitles[card.art]||card.art);
+  return slot+'Blank';
+}
 function renderLivePreview() {
   if (!ecoConfig) return;
+  const request=++livePreviewRequest;
   const layout=(ecoConfig.layouts||[]).find(item=>item.id===ecoConfig.layout_id) || null;
   const canvas=document.getElementById('live-layout-canvas'), name=document.getElementById('live-layout-name');
   if (!ecoConfig.layout_sent) {
@@ -1061,15 +1170,23 @@ function renderLivePreview() {
   canvas.classList.remove('empty');
   if (!layout) { canvas.innerHTML=''; name.textContent='No live layout is available.'; return; }
   const image=layout.background_type!=='color', path=layoutBackgroundPath(layout);
-  canvas.innerHTML=''; canvas.style.backgroundImage=image?'url('+path+encodeURIComponent(layout.base)+')':'none'; canvas.style.backgroundColor=image?'#050508':(layout.background_color||'#000000');
   const diagnostic=!!layout.diagnostic;
-  name.textContent='Currently showing: '+layout.name+(diagnostic ? '.' : (ecoLiveShort ? ' · NeoSD Pro: '+(ecoTitles[ecoLiveShort]||ecoLiveShort) : ''));
-  if (!diagnostic) (ecoConfig.cards||[]).forEach((card,index)=>appendMiniMarquee(canvas,card,layout.windows[index],ecoLiveShort));
+  canvas.innerHTML=''; canvas.style.backgroundImage=image?'url('+path+encodeURIComponent(layout.base)+'?layout='+encodeURIComponent(layout.id)+')':'none'; canvas.style.backgroundColor=image?'#050508':(layout.background_color||'#000000');
+  if (!diagnostic && request===livePreviewRequest) (ecoConfig.cards||[]).forEach((card,index)=>appendMiniMarquee(canvas,card,layout.windows[index],ecoLiveShort));
+  const cards=!diagnostic ? (ecoConfig.cards||[]).map(liveCardLabel).join(' · ') : '';
+  name.textContent='Currently showing: '+layout.name+(cards ? ' · '+cards : '');
 }
 function startEcoLiveUpdates() {
   if (ecoLiveEvents) return;
   ecoLiveEvents=new EventSource('/events');
-  ecoLiveEvents.onmessage=e=>{ try { ecoLiveShort=(JSON.parse(e.data)||{}).short||null; renderLivePreview(); } catch (_) {} };
+  ecoLiveEvents.onmessage=e=>{ try {
+    const next=(JSON.parse(e.data)||{}).short||null;
+    // The event stream sends heartbeats. Rebuilding during every identical
+    // heartbeat repeatedly cancels an in-flight preview image load, leaving
+    // the background visible but its cards absent.
+    if (next===ecoLiveShort) return;
+    ecoLiveShort=next; renderLivePreview();
+  } catch (_) {} };
 }
 function pullCards() {
   const layout=selectedLayout(); if (!ecoConfig || !layout) return [];
@@ -1236,8 +1353,15 @@ function renderBasePills() {
   };
   const liveFirst=items=>items.slice().sort((a,b)=>(b.id===ecoConfig.layout_id)-(a.id===ecoConfig.layout_id));
   const layouts=ecoConfig.layouts || [];
-  liveFirst(layouts.filter(layout=>layout.base_source==='builtin' && layout.id!=='viewport-test')).forEach(layout=>add(builtins,layout));
-  liveFirst(layouts.filter(layout=>layout.base_source!=='builtin')).forEach(layout=>add(customs,layout));
+  const customLayouts=layouts.filter(layout=>layout.base_source!=='builtin');
+  layouts.filter(layout=>layout.base_source==='builtin' && layout.id!=='viewport-test').forEach(layout=>add(builtins,layout));
+  if (customLayouts.length) liveFirst(customLayouts).forEach(layout=>add(customs,layout));
+  else {
+    const empty=document.createElement('div'); empty.className='custom-layout-empty';
+    empty.append(document.createTextNode('No custom marquees yet.'));
+    const button=document.createElement('button'); button.type='button'; button.className='btn primary'; button.textContent='+ Create custom layout';
+    button.onclick=createCustomLayout; empty.appendChild(button); customs.appendChild(empty);
+  }
   liveFirst(layouts.filter(layout=>layout.id==='viewport-test')).forEach(layout=>add(diagnostics,layout));
 }
 function createCustomLayout() {
@@ -1516,6 +1640,11 @@ loadEco();
 const sel = document.getElementById('sel');
 const selNow = document.getElementById('sel-now');
 const pwrNow = document.getElementById('pwr-now');
+const shutdownEnabled = document.getElementById('shutdown-enabled');
+const shutdownDelay = document.getElementById('shutdown-delay');
+const shutdownNow = document.getElementById('shutdown-now');
+const advancedSettingsEnabled = document.getElementById('advanced-settings-enabled');
+const advancedSettingsContent = document.getElementById('advanced-settings-content');
 let isManual = false, activeDisplayMode = 'mini', pendingDisplayMode = 'mini', displayModeConfigured = false, firstSetupPrompted = false, displayModePreview = null, displayModeCountdownTimer = null;
 const ADMIN_TAB_KEY='marqueemark-admin-tab';
 const savedAdminTab=localStorage.getItem(ADMIN_TAB_KEY);
@@ -1727,6 +1856,53 @@ document.getElementById('pwr-wake').onclick = async () => {
   setTimeout(refreshMode, 400);
 };
 
+function renderShutdownSetting(data) {
+  shutdownEnabled.checked=!!data.enabled;
+  if (document.activeElement !== shutdownDelay) shutdownDelay.value=data.delay_seconds;
+  shutdownDelay.disabled=!shutdownEnabled.checked;
+  const runtime=data.runtime || {};
+  if (!data.enabled) shutdownNow.textContent='Off — normal display-sleep behaviour remains unchanged.';
+  else if (runtime.state==='waiting-for-link') shutdownNow.textContent='Enabled, waiting to see the NeoSD USB link once before arming.';
+  else if (runtime.state==='countdown') shutdownNow.textContent='Cabinet link lost — powering down in '+runtime.remaining_seconds+' second'+(runtime.remaining_seconds===1?'':'s')+'.';
+  else if (runtime.state==='powering-off') shutdownNow.textContent='Powering down cleanly now. It is safe to switch off once the Pi has halted.';
+  else shutdownNow.textContent='Enabled — the Pi will safely shut down '+data.delay_seconds+' seconds after cabinet power-off is detected.';
+}
+async function refreshShutdownSetting() {
+  try { const r=await fetch('/cabinet-shutdown'); if (r.ok) renderShutdownSetting(await r.json()); } catch (_) {}
+}
+shutdownEnabled.onchange=()=>{ shutdownDelay.disabled=!shutdownEnabled.checked; };
+document.getElementById('shutdown-save').onclick=async()=>{
+  const button=document.getElementById('shutdown-save');
+  const delay=Math.max(5,Math.min(600,Number.parseInt(shutdownDelay.value,10)||10));
+  button.disabled=true;
+  try {
+    const r=await fetch('/cabinet-shutdown?enabled='+(shutdownEnabled.checked?'1':'0')+'&delay_seconds='+delay,{method:'POST'});
+    if (!r.ok) throw new Error(await r.text());
+    renderShutdownSetting(await r.json());
+  } catch (error) { alert('Could not save shutdown setting: '+error.message); }
+  finally { button.disabled=false; }
+};
+function closeAdvancedSettings() { document.getElementById('advanced-settings-modal').classList.add('hidden'); }
+document.getElementById('advanced-settings-open').onclick=async()=>{
+  advancedSettingsEnabled.checked=false;
+  advancedSettingsContent.disabled=true;
+  await refreshShutdownSetting();
+  document.getElementById('advanced-settings-modal').classList.remove('hidden');
+};
+advancedSettingsEnabled.onchange=()=>{ advancedSettingsContent.disabled=!advancedSettingsEnabled.checked; };
+document.getElementById('advanced-settings-close').onclick=closeAdvancedSettings;
+document.getElementById('advanced-settings-modal').onclick=e=>{if(e.target===e.currentTarget)closeAdvancedSettings();};
+document.getElementById('shutdown-preview-display').onclick=async()=>{
+  const button=document.getElementById('shutdown-preview-display'); button.disabled=true;
+  try {
+    const r=await fetch('/shutdown/preview',{method:'POST'});
+    if (!r.ok) throw new Error(await r.text());
+    shutdownNow.textContent='Preview playing on the marquee. It will restore the current art when the clip ends.';
+  } catch (error) { alert('Could not start marquee preview: '+error.message); }
+  finally { window.setTimeout(()=>button.disabled=false,700); }
+};
+document.getElementById('shutdown-preview-browser').onclick=()=>window.open('/shutdown-preview','_blank','noopener');
+
 refreshMode();
 setInterval(refreshMode, 5000);
 
@@ -1845,10 +2021,13 @@ class OverlayServer:
                 if path in ("/", "/overlay"):
                     self._send(200, "text/html; charset=utf-8",
                                OVERLAY_HTML.encode("utf-8"))
+                elif path == "/shutdown-preview":
+                    self._send(200, "text/html; charset=utf-8",
+                               SHUTDOWN_PREVIEW_HTML.encode("utf-8"))
                 elif path == "/admin":
                     page = ADMIN_HTML.replace("{{VERSION}}", VERSION)
                     self._send(200, "text/html; charset=utf-8",
-                               page.encode("utf-8"))
+                               page.encode("utf-8"), {"Cache-Control": "no-store"})
                 elif path == "/list":
                     names = None
                     src_url = getattr(server, "art_source", None)
@@ -1857,11 +2036,11 @@ class OverlayServer:
                     if names is None:  # no source, or it's unreachable
                         try:
                             names = sorted(n for n in os.listdir(server.art_dir)
-                                           if n.endswith(".png"))
+                                           if is_game_art_filename(n))
                         except OSError:
                             names = []
                     self._send(200, "application/json",
-                               json.dumps(sorted(names)).encode())
+                               json.dumps(sorted(names)).encode(), {"Cache-Control": "no-store"})
                 elif path == "/game-titles":
                     self._send(200, "application/json",
                                json.dumps(GAME_TITLES).encode())
@@ -1879,6 +2058,9 @@ class OverlayServer:
                         "asleep": server.display.screen is None,
                         "manual_sleep": server.display.manual_sleep,
                     }).encode())
+                elif path == "/cabinet-shutdown":
+                    self._send(200, "application/json",
+                               json.dumps(cabinet_shutdown_payload()).encode())
                 elif path == "/selection":
                     self._send(200, "application/json",
                                json.dumps({"short": read_selection()}).encode())
@@ -1978,6 +2160,29 @@ class OverlayServer:
                 elif path == "/display/wake":
                     DISPLAY_QUEUE.put(("wake",))
                     self._send(200, "text/plain", b"ok")
+                elif path == "/shutdown/preview":
+                    DISPLAY_QUEUE.put(("shutdown_preview",))
+                    self._send(200, "text/plain", b"ok")
+                elif path == "/cabinet-shutdown":
+                    try:
+                        enabled = params.get("enabled", "") in ("1", "true", "yes", "on")
+                        delay = int(params.get("delay_seconds", ""))
+                    except ValueError:
+                        self._send(400, "text/plain", b"delay_seconds must be a whole number")
+                        return
+                    if not CABINET_SHUTDOWN_MIN_SECONDS <= delay <= CABINET_SHUTDOWN_MAX_SECONDS:
+                        self._send(400, "text/plain", ("delay_seconds must be between %d and %d" %
+                                   (CABINET_SHUTDOWN_MIN_SECONDS, CABINET_SHUTDOWN_MAX_SECONDS)).encode())
+                        return
+                    try:
+                        config = save_cabinet_shutdown_config({"enabled": enabled,
+                                                               "delay_seconds": delay})
+                    except OSError:
+                        self._send(500, "text/plain", b"could not save shutdown setting")
+                        return
+                    payload = cabinet_shutdown_payload()
+                    payload.update(config)
+                    self._send(200, "application/json", json.dumps(payload).encode())
                 elif path == "/display/mode":
                     mode = params.get("layout", "")
                     if mode not in DISPLAY_MODES:
@@ -2413,7 +2618,12 @@ class Display:
             self.size = phys
 
         self.art_dir = art_dir
+        # Generated quality variants deliberately live outside art/: that
+        # folder can be shared with other frontends (such as Gamesboro) and
+        # must contain only their original game artwork.
+        self.card_cache_dir = CARD_CACHE_DIR
         self.current = None
+        self._shutdown_preview = None
         self.last_game = None
         self.tilt = tilt
         self.rect = pygame.Rect(*rect_l) if rect_l else \
@@ -2514,9 +2724,27 @@ class Display:
         self._place(surf, img)
         return surf
 
-    def _electro_art(self, stem):
-        try: return pygame.image.load(os.path.join(self.art_dir, stem + ".png")).convert() if stem else None
-        except (pygame.error, OSError): return None
+    def _electro_art(self, stem, target_size=None):
+        """Load original card art, preferring an exact-size quality cache.
+
+        A cached PNG is optional and lets especially text-heavy mini marquees
+        be downsampled offline with a higher-quality filter than the runtime
+        scaler.  The original art always remains the fallback.
+        """
+        if not stem:
+            return None
+        paths = []
+        if target_size:
+            paths.append(os.path.join(self.card_cache_dir,
+                                      "%s--%dx%d.png" % (stem, target_size[0], target_size[1])))
+        paths.append(os.path.join(self.art_dir, stem + ".png"))
+        for path in paths:
+            try:
+                if os.path.isfile(path):
+                    return pygame.image.load(path).convert()
+            except (pygame.error, OSError):
+                pass
+        return None
 
     def _electro_base(self):
         cfg = self.electro_config
@@ -2537,8 +2765,12 @@ class Display:
         for r, card in zip(self.electro_config["windows"], self.electro_config["cards"]):
             target = pygame.Rect(round(r[0]*sx), round(r[1]*sy), round(r[2]*sx), round(r[3]*sy))
             stem = self.electro_neosd["short"] if card["source"] == "neosd" and self.electro_neosd else card["art"] if card["source"] == "fixed" else ""
-            art = self._electro_art(stem)
-            if art: surf.blit(pygame.transform.smoothscale(art, target.size), target)
+            art = self._electro_art(stem, target.size)
+            if art:
+                # Exact-size caches are already quality-downsampled offline.
+                # Other art retains the normal runtime smooth scaling.
+                card = art if art.get_size() == target.size else pygame.transform.smoothscale(art, target.size)
+                surf.blit(card, target)
         return surf
 
     def _show_electrocoin(self):
@@ -2619,6 +2851,94 @@ class Display:
         else:
             self.blank()
 
+    def show_shutdown_countdown(self, remaining, total, elapsed=0):
+        """Render a native reverse Neo Geo boot sequence during power-off.
+
+        This deliberately contains no video playback or decoded frames.  It
+        keeps the animation responsive on the Pi while matching the familiar
+        boot progression in reverse: finished boot screen, logo collapse and
+        mirror, GAME OVER, then a clean black panel before power-off.
+        """
+        if self.calibrating or self.screen is None:
+            return
+        surf = pygame.Surface(self.size); surf.fill(BG)
+        w, h = self.size
+        # The wide marquee only uses its visible 380px viewport; leave any
+        # unused lower framebuffer area black as the regular layouts do.
+        panel = pygame.Rect(0, 0, w, min(ELECTROCOIN_VIEWPORT_HEIGHT, h))
+        stage = pygame.Surface(panel.size); stage.fill((0, 0, 0))
+        stage_w, stage_h = stage.get_size()
+        boot_hold = min(0.90, total * .18)
+        flip_end = boot_hold + min(1.20, total * .24)
+        game_over_at = max(flip_end, total - 2.4)
+        blackout_at = max(game_over_at + .9, total - .55)
+
+        logo_font = pygame.font.SysFont("Times New Roman", max(28, int(stage_h * .25)), bold=True)
+        sub_font = pygame.font.SysFont(None, max(16, int(stage_h * .085)), bold=True)
+        snk_font = pygame.font.SysFont(None, max(18, int(stage_h * .09)), bold=True)
+        logo_white = logo_font.render("NEO·GEO", True, (242, 242, 242))
+        logo_black = logo_font.render("NEO·GEO", True, (8, 8, 8))
+
+        if elapsed < boot_hold:
+            # The completed classic boot screen.
+            stage.blit(logo_white, logo_white.get_rect(center=(stage_w // 2, int(stage_h * .38))))
+            specs = sub_font.render("MAX 330 MEGA", True, (236, 236, 236))
+            progear = sub_font.render("PRO-GEAR SPEC", True, (236, 236, 236))
+            snk = snk_font.render("SNK", True, (236, 236, 236))
+            stage.blit(specs, specs.get_rect(center=(stage_w // 2, int(stage_h * .56))))
+            stage.blit(progear, progear.get_rect(center=(stage_w // 2, int(stage_h * .65))))
+            stage.blit(snk, snk.get_rect(center=(stage_w // 2, int(stage_h * .79))))
+        elif elapsed < flip_end:
+            # Collapse the finished logo, then expand its mirrored inverse.
+            progress = (elapsed - boot_hold) / max(.01, flip_end - boot_hold)
+            if progress < .5:
+                scale = max(.02, 1.0 - progress * 2.0)
+                shrinking = pygame.transform.smoothscale(logo_white,
+                    (max(1, round(logo_white.get_width() * scale)), logo_white.get_height()))
+                stage.blit(shrinking, shrinking.get_rect(center=(stage_w // 2, stage_h // 2)))
+            else:
+                stage.fill((248, 248, 248))
+                scale = max(.02, (progress - .5) * 2.0)
+                mirrored = pygame.transform.flip(logo_black, True, False)
+                expanding = pygame.transform.smoothscale(mirrored,
+                    (max(1, round(mirrored.get_width() * scale)), mirrored.get_height()))
+                stage.blit(expanding, expanding.get_rect(center=(stage_w // 2, stage_h // 2)))
+        elif elapsed < game_over_at:
+            stage.fill((248, 248, 248))
+            mirrored = pygame.transform.flip(logo_black, True, False)
+            stage.blit(mirrored, mirrored.get_rect(center=(stage_w // 2, stage_h // 2)))
+        elif elapsed < blackout_at:
+            game_font = pygame.font.SysFont(None, max(28, int(stage_h * .18)), bold=True)
+            game_over = game_font.render("GAME OVER", True, (242, 242, 242))
+            detail = sub_font.render("CABINET POWER OFF", True, (174, 174, 174))
+            stage.blit(game_over, game_over.get_rect(center=(stage_w // 2, int(stage_h * .46))))
+            stage.blit(detail, detail.get_rect(center=(stage_w // 2, int(stage_h * .63))))
+        # Final phase remains solid black until the Pi actually halts.
+        surf.blit(stage, panel)
+        self._present(surf)
+        self.current = surf
+
+    def start_shutdown_preview(self, seconds=10):
+        """Play the shutdown art on demand, never requesting power-off."""
+        self.wake(force=True)
+        self._shutdown_preview = {"started": time.monotonic(), "seconds": seconds}
+        self.show_shutdown_countdown(seconds, seconds, 0)
+
+    def _update_shutdown_preview(self):
+        preview = self._shutdown_preview
+        if not preview:
+            return
+        elapsed = time.monotonic() - preview["started"]
+        if elapsed < preview["seconds"]:
+            self.show_shutdown_countdown(max(0, int(preview["seconds"] - elapsed + .999)),
+                                         preview["seconds"], elapsed)
+            return
+        self._shutdown_preview = None
+        if self.last_game:
+            self.show_game(self.last_game)
+        else:
+            self.show_idle()
+
     def sleep(self):
         """Release the screen and cut video output so the panel's driver
         board loses signal and drops to standby (backlight off)."""
@@ -2689,6 +3009,7 @@ class Display:
         print("[MarqueeMark] HDMI display detected; output restored")
 
     def pump(self):
+        self._update_shutdown_preview()
         if self.headless:
             self._retry_headless_display()
             return True
@@ -2724,6 +3045,8 @@ class Display:
             elif cmd[0] == "wake":
                 self.wake(force=True)
                 self.current = None  # force a redraw on the next show_*
+            elif cmd[0] == "shutdown_preview":
+                self.start_shutdown_preview()
 
     def process_calibration_queue(self):
         changed = False
@@ -3045,15 +3368,39 @@ def _poll_sleep_source(url):
         return None
 
 
+def _poweroff_pi():
+    """Ask systemd to halt after the cabinet-off countdown.
+
+    The service deliberately has a narrowly-scoped sudoers permission for
+    this one command (installed by install.sh); there is no web endpoint that
+    can invoke it directly.
+    """
+    try:
+        subprocess.Popen(["sudo", "-n", "/usr/bin/systemctl", "poweroff"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("[MarqueeMark] clean power-off requested")
+    except OSError as e:
+        print("[MarqueeMark] could not request power-off: %s" % e)
+
+
 def run_neosd(args, display, publish, overlay):
     """Normal mode: this panel follows a NeoSD Pro on the local USB port."""
     last = None
     idle_shown = False
     lost_cycles = 0
+    neosd_connected_once = False
+    shutdown_started = None
+    shutdown_requested = False
     while True:
         try:
             with serial.Serial(args.port, 115200, timeout=0.2) as port:
+                neosd_connected_once = True
                 display.wake()
+                if shutdown_started is not None:
+                    print("[MarqueeMark] NeoSD USB link restored — shutdown cancelled")
+                shutdown_started = None
+                shutdown_requested = False
+                set_cabinet_shutdown_runtime("armed" if load_cabinet_shutdown_config()["enabled"] else "disabled")
                 print("[MarqueeMark v%s] listening on %s" % (VERSION, args.port))
                 idle_shown = False
                 lost_cycles = 0
@@ -3089,17 +3436,42 @@ def run_neosd(args, display, publish, overlay):
                     display.show_game(game)
                     publish(game)
         except (serial.SerialException, OSError):
+            shutdown = load_cabinet_shutdown_config()
+            shutdown_active = shutdown["enabled"] and neosd_connected_once
             if not idle_shown:
                 print("[MarqueeMark] no cart link — idle (%s)" % args.idle)
-                if args.idle == "generic":
-                    display.show_idle()
-                else:
-                    display.blank()
+                if not shutdown_active:
+                    if args.idle == "generic":
+                        display.show_idle()
+                    else:
+                        display.blank()
                 publish(None)
                 idle_shown = True
             last = None
             lost_cycles += 1
-            if lost_cycles == 10 and not args.keep_awake and not display.calibrating:
+            if shutdown_active:
+                if shutdown_started is None:
+                    shutdown_started = time.monotonic()
+                    shutdown_requested = False
+                    print("[MarqueeMark] cabinet link lost — clean shutdown in %ss" % shutdown["delay_seconds"])
+                    display.wake()
+                elapsed = time.monotonic() - shutdown_started
+                remaining = max(0, int(shutdown["delay_seconds"] - elapsed + .999))
+                if shutdown_requested:
+                    set_cabinet_shutdown_runtime("powering-off", 0)
+                else:
+                    set_cabinet_shutdown_runtime("countdown", remaining)
+                    display.show_shutdown_countdown(remaining, shutdown["delay_seconds"], elapsed)
+                    if elapsed >= shutdown["delay_seconds"]:
+                        shutdown_requested = True
+                        set_cabinet_shutdown_runtime("powering-off", 0)
+                        _poweroff_pi()
+            else:
+                shutdown_started = None
+                shutdown_requested = False
+                set_cabinet_shutdown_runtime("waiting-for-link" if shutdown["enabled"] else "disabled")
+            if (not shutdown_active and lost_cycles >= 10 and
+                    not args.keep_awake and not display.calibrating):
                 display.sleep()
             for _ in range(10):
                 display.process_display_queue()
@@ -3107,6 +3479,17 @@ def run_neosd(args, display, publish, overlay):
                 if not display.pump():
                     pygame.quit()
                     sys.exit(0)
+                # Redraw during the one-second reconnect wait so the power-off
+                # scan line is an actual animation, not a sequence of stills.
+                if shutdown_active and not shutdown_requested:
+                    elapsed = time.monotonic() - shutdown_started
+                    remaining = max(0, int(shutdown["delay_seconds"] - elapsed + .999))
+                    set_cabinet_shutdown_runtime("countdown", remaining)
+                    display.show_shutdown_countdown(remaining, shutdown["delay_seconds"], elapsed)
+                    if elapsed >= shutdown["delay_seconds"]:
+                        shutdown_requested = True
+                        set_cabinet_shutdown_runtime("powering-off", 0)
+                        _poweroff_pi()
                 time.sleep(0.1)
 
 
