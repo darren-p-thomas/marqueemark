@@ -187,6 +187,40 @@ else
   echo "  no Raspberry Pi cmdline.txt found — leave physical-console settings unchanged."
 fi
 
+# ----------------------------------------------------------- boot splash
+# Replace Raspberry Pi OS's desktop splash with a quiet Neo Geo startup
+# screen.  This is intentionally static: it appears as early as Plymouth can
+# draw, then hands off to MarqueeMark without another decoder or video stack.
+install_startup_splash() {
+  if ! command -v plymouth-set-default-theme >/dev/null; then
+    echo "  Plymouth is not installed — skip Neo Geo startup splash."
+    return
+  fi
+
+  local theme_dir="/usr/share/plymouth/themes/marqueemark-startup"
+  local theme_file script_file image_file
+  theme_file="$(mktemp)"
+  script_file="$(mktemp)"
+  image_file="$(mktemp)"
+  if ! curl -fsSL "$REPO_RAW/plymouth/marqueemark-startup/marqueemark-startup.plymouth" -o "$theme_file" || \
+     ! curl -fsSL "$REPO_RAW/plymouth/marqueemark-startup/marqueemark-startup.script" -o "$script_file" || \
+     ! curl -fsSL "$REPO_RAW/plymouth/marqueemark-startup/splash.png" -o "$image_file"; then
+    rm -f "$theme_file" "$script_file" "$image_file"
+    echo "  could not download Neo Geo startup splash — keep the current boot theme."
+    return
+  fi
+
+  say "Installing Neo Geo startup splash"
+  sudo install -d -m 755 "$theme_dir"
+  sudo install -m 644 "$theme_file" "$theme_dir/marqueemark-startup.plymouth"
+  sudo install -m 644 "$script_file" "$theme_dir/marqueemark-startup.script"
+  sudo install -m 644 "$image_file" "$theme_dir/splash.png"
+  rm -f "$theme_file" "$script_file" "$image_file"
+  sudo plymouth-set-default-theme -R marqueemark-startup
+  echo "  Neo Geo startup splash will appear after the next reboot."
+}
+install_startup_splash
+
 # -------------------------------------------------------------- rotation
 # Panels mount in portrait; which value is right-side-up depends on which
 # edge the ribbon cable exits. Default 90; calibration's 'p' preview will

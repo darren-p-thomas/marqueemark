@@ -1,0 +1,39 @@
+# Static Neo Geo boot screen.  This follows Raspberry Pi OS's built-in pix
+# theme pattern and scales the art to fit without distortion.
+screen_width = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+theme_image = Image("splash.png");
+image_width = theme_image.GetWidth();
+image_height = theme_image.GetHeight();
+scale_x = image_width / screen_width;
+scale_y = image_height / screen_height;
+
+if (scale_x > 1 || scale_y > 1)
+{
+    if (scale_x > scale_y)
+    {
+        splash_image = theme_image.Scale(screen_width, image_height / scale_x);
+        splash_x = 0;
+        splash_y = (screen_height - splash_image.GetHeight()) / 2;
+    }
+    else
+    {
+        splash_image = theme_image.Scale(image_width / scale_y, screen_height);
+        splash_x = (screen_width - splash_image.GetWidth()) / 2;
+        splash_y = 0;
+    }
+}
+else
+{
+    splash_image = theme_image;
+    splash_x = (screen_width - image_width) / 2;
+    splash_y = (screen_height - image_height) / 2;
+}
+
+# The shutdown sequence owns its final black frame; this is strictly boot art.
+if (Plymouth.GetMode() != "shutdown")
+{
+    splash = Sprite(splash_image);
+    splash.SetPosition(splash_x, splash_y, -100);
+}
