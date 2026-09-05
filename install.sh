@@ -155,6 +155,38 @@ else
   echo "raspi-config not found — skip console-boot step (set it manually if needed)."
 fi
 
+# MarqueeMark owns the physical panel through KMS.  A Linux console on tty1
+# would reclaim that panel while systemd powers off, briefly exposing console
+# status text after the shutdown animation has finished.  Keep the serial
+# console for recovery, but remove the physical console and make status text
+# silent.  cmdline.txt must remain one line on Raspberry Pi OS.
+CMDLINE_FILE=""
+for candidate in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
+  if [ -f "$candidate" ]; then
+    CMDLINE_FILE="$candidate"
+    break
+  fi
+done
+if [ -n "$CMDLINE_FILE" ]; then
+  CONSOLE_BACKUP="$CMDLINE_FILE.marqueemark-console-backup"
+  if [ ! -f "$CONSOLE_BACKUP" ]; then
+    say "Backing up physical-console configuration"
+    sudo cp "$CMDLINE_FILE" "$CONSOLE_BACKUP"
+  fi
+  say "Keeping the marquee free of shutdown console text"
+  sudo sed -i \
+    -e 's/[[:space:]]console=tty1//g' \
+    -e 's/[[:space:]]loglevel=0//g' \
+    -e 's/[[:space:]]systemd.show_status=false//g' \
+    -e 's/[[:space:]]vt.global_cursor_default=0//g' \
+    -e 's/$/ loglevel=0 systemd.show_status=false vt.global_cursor_default=0/' \
+    "$CMDLINE_FILE"
+  sudo systemctl disable getty@tty1.service >/dev/null 2>&1 || true
+  echo "  applies after the next reboot; serial-console recovery remains available."
+else
+  echo "  no Raspberry Pi cmdline.txt found — leave physical-console settings unchanged."
+fi
+
 # -------------------------------------------------------------- rotation
 # Panels mount in portrait; which value is right-side-up depends on which
 # edge the ribbon cable exits. Default 90; calibration's 'p' preview will

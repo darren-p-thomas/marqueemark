@@ -3376,10 +3376,18 @@ def _poweroff_pi():
     can invoke it directly.
     """
     try:
+        # SDL releases the DRM framebuffer as systemd stops this service.
+        # Without blanking fb0 first, the Linux console can flash a final
+        # shutdown line over the completed black frame.  This permission is
+        # already deliberately scoped by install.sh to this one framebuffer
+        # attribute.
+        subprocess.run(["sudo", "-n", "/usr/bin/tee", "/sys/class/graphics/fb0/blank"],
+                       input=b"1\n", stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, check=False, timeout=1)
         subprocess.Popen(["sudo", "-n", "/usr/bin/systemctl", "poweroff"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print("[MarqueeMark] clean power-off requested")
-    except OSError as e:
+    except (OSError, subprocess.SubprocessError) as e:
         print("[MarqueeMark] could not request power-off: %s" % e)
 
 
