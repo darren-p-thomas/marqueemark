@@ -33,7 +33,9 @@ reversible.
   inactivity never triggers it. Browser and on-marquee previews are safe and
   never power off the Pi. The installer also reserves the physical panel for
   MarqueeMark, so Linux shutdown-console text cannot flash over the final
-  black frame; serial-console recovery remains available after reboot.
+  black frame; serial-console recovery remains available after reboot. The
+  Neo Geo visual sequence is used only with the Ultrawide Marquee; mini
+  marquees cleanly blank before power-off.
 - **Calibration from your browser**: position, resize, tilt, and flip the
   image from the admin page on any phone or PC while watching the panel
   update live. No SSH, no keyboard, no Linux required. Proportions are

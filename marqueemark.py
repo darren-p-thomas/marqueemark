@@ -2861,6 +2861,12 @@ class Display:
         """
         if self.calibrating or self.screen is None:
             return
+        # The Neo Geo sequence is artwork for the ultrawide cabinet display.
+        # A mini marquee still shuts down safely, but should simply blank
+        # rather than receive wide-panel art it cannot display correctly.
+        if not self.electrocoin:
+            self.blank()
+            return
         surf = pygame.Surface(self.size); surf.fill(BG)
         w, h = self.size
         # The wide marquee only uses its visible 380px viewport; leave any
