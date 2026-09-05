@@ -28,7 +28,10 @@ else
 {
     splash_image = theme_image;
     splash_x = (screen_width - image_width) / 2;
-    splash_y = (screen_height - image_height) / 2;
+    # The physical ultrawide panel exposes the top 380px of the Pi's
+    # 1366x768 framebuffer, so centre horizontally but anchor the splash to
+    # the visible top edge rather than vertically centring it off-panel.
+    splash_y = 0;
 }
 
 # The shutdown sequence owns its final black frame; this is strictly boot art.
