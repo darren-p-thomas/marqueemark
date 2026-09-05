@@ -31,7 +31,9 @@ reversible.
   native reverse Neo Geo boot sequence, then halt the Pi cleanly after a
   configurable 5–600 second delay. It is disabled by default and normal game
   inactivity never triggers it. Browser and on-marquee previews are safe and
-  never power off the Pi.
+  never power off the Pi. The installer also reserves the physical panel for
+  MarqueeMark, so Linux shutdown-console text cannot flash over the final
+  black frame; serial-console recovery remains available after reboot.
 - **Calibration from your browser**: position, resize, tilt, and flip the
   image from the admin page on any phone or PC while watching the panel
   update live. No SSH, no keyboard, no Linux required. Proportions are
