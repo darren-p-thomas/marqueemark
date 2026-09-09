@@ -56,6 +56,7 @@ sudo chown -R "$USER_NAME:$USER_NAME" "$INSTALL_DIR"
 IS_UPDATE=0
 [ -f "$SERVICE" ] && IS_UPDATE=1
 BOOT_CONFIG_CHANGED=0
+STARTUP_BOOT_PRE=""
 SHUTDOWN_ANIMATION_STOP=""
 SERVICE_STOP_TIMEOUT=5
 
@@ -270,6 +271,7 @@ if [ -f "$SPLASH_MARKER" ]; then
   # SDL releases KMS during shutdown. Keep local recovery on tty2 so the
   # presentation tty can remain black without removing console access.
   RECOVERY_GETTY="getty@tty2.service"
+  STARTUP_BOOT_PRE="ExecStartPre=/bin/sh -c 'if [ \"\$(/usr/bin/systemctl is-system-running 2>/dev/null)\" = starting ]; then /usr/bin/touch /run/marqueemark/system-boot; fi'"
   SHUTDOWN_ANIMATION_STOP="ExecStop=/bin/sh -c 'if [ -e /run/marqueemark/cabinet-poweroff ]; then /bin/rm -f /run/marqueemark/cabinet-poweroff; elif [ \"\$(/usr/bin/systemctl is-system-running 2>/dev/null)\" = stopping ]; then /bin/kill -USR1 \"\$MAINPID\"; /bin/sleep 11; fi'"
   SERVICE_STOP_TIMEOUT=15
   sudo systemctl enable --now getty@tty2.service >/dev/null 2>&1 || true
@@ -363,7 +365,7 @@ Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=SDL_AUDIODRIVER=dummy
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=$INSTALL_DIR
-ExecStartPre=/bin/sh -c 'if [ "$(/usr/bin/systemctl is-system-running 2>/dev/null)" = starting ]; then /usr/bin/touch /run/marqueemark/system-boot; fi'
+$STARTUP_BOOT_PRE
 ExecStart=/usr/bin/python3 $INSTALL_DIR/marqueemark.py $RUN_ARGS
 # systemd considers getty started before agetty has necessarily printed its
 # banner. Wait until both it and MarqueeMark have settled, then reset the
