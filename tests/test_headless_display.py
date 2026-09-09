@@ -49,6 +49,19 @@ class HeadlessDisplayTests(unittest.TestCase):
         self.assertTrue(display.set_layout_mode("mini"))
         self.assertIsNone(display.last_game)
 
+    @mock.patch.object(marqueemark, "load_electrocoin_config")
+    @mock.patch.object(marqueemark.pygame.display, "set_mode",
+                       return_value=pygame.Surface((1366, 768)))
+    def test_saved_ultrawide_mode_starts_without_portrait_rotation(self, set_mode,
+                                                                   load_config):
+        load_config.return_value = marqueemark.electro_config()
+        with mock.patch.object(marqueemark.pygame.display, "flip"):
+            display = marqueemark.Display(str(self.art_dir), rotate=90,
+                                          layout_mode="ultrawide")
+        self.assertTrue(display.electrocoin)
+        self.assertEqual(display.rotate, 0)
+        self.assertEqual(display.size, (1366, 768))
+
     @mock.patch.object(marqueemark.pygame.image, "load")
     def test_saved_mini_mode_does_not_decode_art_headless(self, load):
         self.assertTrue(self.display.set_layout_mode("mini"))

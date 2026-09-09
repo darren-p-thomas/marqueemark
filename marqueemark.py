@@ -80,7 +80,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.6-cabinet-shutdown.8"
+VERSION = "1.3.6-cabinet-shutdown.9"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -2606,12 +2606,12 @@ class Display:
         phys = self.screen.get_size()
 
         self.phys = phys
-        cal = None if electrocoin else load_calibration()
+        cal = None if self.electrocoin else load_calibration()
         rect_l, tilt, saved_rotate, saved_dpad = cal if cal else (None, 0.0, None, 0)
         # A rotate saved via the web "Flip" button overrides the --rotate
         # launch flag, so flipping never requires editing the systemd
         # unit again once it's been set once.
-        self.rotate = 0 if electrocoin else (saved_rotate if saved_rotate is not None else rotate) % 360
+        self.rotate = 0 if self.electrocoin else (saved_rotate if saved_rotate is not None else rotate) % 360
         # Which physical edge this panel's ribbon exits decides which way
         # the D-pad needs correcting — an installation detail, not
         # something derivable from the rotate angle. 0 = no correction
@@ -2621,7 +2621,7 @@ class Display:
         # Logical canvas: what we compose art onto. For 90/270 the canvas
         # is the physical screen turned on its side. (90 and 270 share
         # the same logical size - they differ only in final rotation.)
-        if self.rotate in (90, 270) and not electrocoin:
+        if self.rotate in (90, 270) and not self.electrocoin:
             self.size = (phys[1], phys[0])
         else:
             self.size = phys

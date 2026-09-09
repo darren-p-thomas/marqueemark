@@ -43,6 +43,8 @@ identify the Electrocoin / Digital Marquee work in this repository.
   startup sequence on cold boot.
 - Run the native startup sequence before saved-layout restoration, preventing
   the previous marquee from flashing before the boot animation.
+- Resolve rotation from the selected display mode during construction, so a
+  saved Ultrawide cold boot cannot inherit the Mini Marquee's 90-degree flag.
 - Validate sudoers rules before installing them.
 
 - Finalised the built-in Neo Geo 1 Slot, 2 Slot, 4 Slot, and 6 Slot artwork,
