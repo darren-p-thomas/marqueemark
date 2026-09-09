@@ -243,8 +243,25 @@ install_startup_splash() {
   BOOT_CONFIG_CHANGED=1
 }
 
+configure_cloud_console_output() {
+  # Raspberry Pi OS cloud-init units duplicate boot-stage output to tty1.
+  # That text remains in the console buffer and flashes when KMS is released
+  # at shutdown. Keep it in journald for diagnostics while leaving the tty1
+  # login itself enabled as a recovery path.
+  local unit dropin_dir dropin_file
+  for unit in cloud-config cloud-final cloud-init-local cloud-init-main cloud-init-network; do
+    dropin_dir="/etc/systemd/system/$unit.service.d"
+    dropin_file="$dropin_dir/marqueemark-console.conf"
+    sudo install -d -m 755 "$dropin_dir"
+    printf '%s\n' '[Service]' 'StandardOutput=journal' 'StandardError=journal' \
+      | sudo tee "$dropin_file" >/dev/null
+  done
+  BOOT_CONFIG_CHANGED=1
+}
+
 if [ -f "$SPLASH_MARKER" ]; then
   install_startup_splash
+  configure_cloud_console_output
   # A user who explicitly selects the cabinet presentation also opts into a
   # quiet handoff. Keep tty1 and its getty intact for recovery; these options
   # suppress routine kernel/systemd chatter without removing the console.
@@ -265,6 +282,9 @@ elif command -v plymouth-set-default-theme >/dev/null && \
       BOOT_CONFIG_CHANGED=1
       break
     fi
+  done
+  for CLOUD_UNIT in cloud-config cloud-final cloud-init-local cloud-init-main cloud-init-network; do
+    sudo rm -f "/etc/systemd/system/$CLOUD_UNIT.service.d/marqueemark-console.conf"
   done
 fi
 

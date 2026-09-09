@@ -20,6 +20,9 @@ identify the Electrocoin / Digital Marquee work in this repository.
 - Limited splash artwork to Plymouth's `boot` mode and blanked the framebuffer
   after Pygame exits, preventing its console restoration from flashing during
   reboot.
+- Kept Raspberry Pi OS cloud-init boot output in journald for the opted-in
+  cabinet presentation, preventing its saved tty1 buffer from resurfacing at
+  shutdown while preserving the tty1 recovery login.
 - Validate sudoers rules before installing them.
 
 - Finalised the built-in Neo Geo 1 Slot, 2 Slot, 4 Slot, and 6 Slot artwork,
