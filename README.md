@@ -31,14 +31,10 @@ reversible.
   native reverse Neo Geo boot sequence, then halt the Pi cleanly after a
   configurable 5–600 second delay. It is disabled by default and normal game
   inactivity never triggers it. Browser and on-marquee previews are safe and
-  never power off the Pi. The installer also reserves the physical panel for
-  MarqueeMark, so Linux shutdown-console text cannot flash over the final
-  black frame; serial-console recovery remains available after reboot. The
+  never power off the Pi. MarqueeMark blanks the framebuffer before requesting
+  power-off, while a local tty1 recovery login remains available after reboot. The
   Neo Geo visual sequence is used only with the Ultrawide Marquee; mini
   marquees cleanly blank before power-off.
-- **Neo Geo boot splash**: on Raspberry Pi OS systems with Plymouth, the
-  installer replaces the desktop boot logo with a silent static Neo Geo
-  startup screen, then hands off to MarqueeMark.
 - **Calibration from your browser**: position, resize, tilt, and flip the
   image from the admin page on any phone or PC while watching the panel
   update live. No SSH, no keyboard, no Linux required. Proportions are

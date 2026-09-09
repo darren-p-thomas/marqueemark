@@ -141,11 +141,18 @@ say "Granting serial and display access"
 sudo usermod -aG dialout,video,render,input "$USER_NAME"
 
 say "Adding display-sleep and clean-shutdown sudoers rules"
+SUDOERS_TMP="$(mktemp)"
 printf '%s\n' \
   "$USER_NAME ALL=(root) NOPASSWD: /usr/bin/tee /sys/class/graphics/fb0/blank" \
   "$USER_NAME ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff" \
-  | sudo tee /etc/sudoers.d/marqueemark >/dev/null
-sudo chmod 440 /etc/sudoers.d/marqueemark
+  > "$SUDOERS_TMP"
+if [ ! -x /usr/sbin/visudo ] || \
+   ! sudo /usr/sbin/visudo -cf "$SUDOERS_TMP" >/dev/null; then
+  rm -f "$SUDOERS_TMP"
+  fail "Could not validate the MarqueeMark sudoers rules; no rules were installed."
+fi
+sudo install -m 440 "$SUDOERS_TMP" /etc/sudoers.d/marqueemark
+rm -f "$SUDOERS_TMP"
 
 # ----------------------------------------------------------- console boot
 if command -v raspi-config >/dev/null; then
@@ -155,11 +162,10 @@ else
   echo "raspi-config not found — skip console-boot step (set it manually if needed)."
 fi
 
-# MarqueeMark owns the physical panel through KMS.  A Linux console on tty1
-# would reclaim that panel while systemd powers off, briefly exposing console
-# status text after the shutdown animation has finished.  Keep the serial
-# console for recovery, but remove the physical console and make status text
-# silent.  cmdline.txt must remain one line on Raspberry Pi OS.
+# Releases before this fix hid tty1 to prevent shutdown text appearing after
+# MarqueeMark's final black frame.  That also removed the only local recovery
+# path when networking or early boot failed.  Repair affected installations
+# without replacing cmdline.txt, so unrelated options added later are kept.
 CMDLINE_FILE=""
 for candidate in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
   if [ -f "$candidate" ]; then
@@ -167,59 +173,40 @@ for candidate in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
     break
   fi
 done
-if [ -n "$CMDLINE_FILE" ]; then
-  CONSOLE_BACKUP="$CMDLINE_FILE.marqueemark-console-backup"
-  if [ ! -f "$CONSOLE_BACKUP" ]; then
-    say "Backing up physical-console configuration"
-    sudo cp "$CMDLINE_FILE" "$CONSOLE_BACKUP"
+if [ -n "$CMDLINE_FILE" ] && \
+   { [ -f "$CMDLINE_FILE.marqueemark-console-backup" ] || \
+     [ -f "$CMDLINE_FILE.marqueemark-backup" ]; }; then
+  if ! grep -qw 'console=tty1' "$CMDLINE_FILE"; then
+    say "Restoring the local recovery console"
+    sudo sed -i 's/$/ console=tty1/' "$CMDLINE_FILE"
   fi
-  say "Keeping the marquee free of shutdown console text"
+  # These three arguments were added by the affected installer and could be
+  # duplicated each time it ran. Remove every copy while retaining all other
+  # arguments, including user-supplied video= modes.
   sudo sed -i \
-    -e 's/[[:space:]]console=tty1//g' \
     -e 's/[[:space:]]loglevel=0//g' \
     -e 's/[[:space:]]systemd.show_status=false//g' \
     -e 's/[[:space:]]vt.global_cursor_default=0//g' \
-    -e 's/$/ loglevel=0 systemd.show_status=false vt.global_cursor_default=0/' \
     "$CMDLINE_FILE"
-  sudo systemctl disable getty@tty1.service >/dev/null 2>&1 || true
-  echo "  applies after the next reboot; serial-console recovery remains available."
-else
-  echo "  no Raspberry Pi cmdline.txt found — leave physical-console settings unchanged."
+  sudo systemctl enable getty@tty1.service >/dev/null 2>&1 || true
+  echo "  tty1 recovery login enabled; unrelated boot options were preserved."
 fi
 
 # ----------------------------------------------------------- boot splash
-# Replace Raspberry Pi OS's desktop splash with a quiet Neo Geo startup
-# screen.  This is intentionally static: it appears as early as Plymouth can
-# draw, then hands off to MarqueeMark without another decoder or video stack.
-install_startup_splash() {
-  if ! command -v plymouth-set-default-theme >/dev/null; then
-    echo "  Plymouth is not installed — skip Neo Geo startup splash."
-    return
-  fi
-
-  local theme_dir="/usr/share/plymouth/themes/marqueemark-startup"
-  local theme_file script_file image_file
-  theme_file="$(mktemp)"
-  script_file="$(mktemp)"
-  image_file="$(mktemp)"
-  if ! curl -fsSL "$REPO_RAW/plymouth/marqueemark-startup/marqueemark-startup.plymouth" -o "$theme_file" || \
-     ! curl -fsSL "$REPO_RAW/plymouth/marqueemark-startup/marqueemark-startup.script" -o "$script_file" || \
-     ! curl -fsSL "$REPO_RAW/plymouth/marqueemark-startup/splash.png" -o "$image_file"; then
-    rm -f "$theme_file" "$script_file" "$image_file"
-    echo "  could not download Neo Geo startup splash — keep the current boot theme."
-    return
-  fi
-
-  say "Installing Neo Geo startup splash"
-  sudo install -d -m 755 "$theme_dir"
-  sudo install -m 644 "$theme_file" "$theme_dir/marqueemark-startup.plymouth"
-  sudo install -m 644 "$script_file" "$theme_dir/marqueemark-startup.script"
-  sudo install -m 644 "$image_file" "$theme_dir/splash.png"
-  rm -f "$theme_file" "$script_file" "$image_file"
-  sudo plymouth-set-default-theme -R marqueemark-startup
-  echo "  Neo Geo startup splash will appear after the next reboot."
-}
-install_startup_splash
+# A custom Plymouth theme is intentionally not selected by the installer.
+# Boot presentation must never make a stock installation harder to recover.
+# If an affected release selected our old theme, return to Raspberry Pi OS's
+# normal theme and rebuild the initramfs.
+if command -v plymouth-set-default-theme >/dev/null && \
+   [ "$(plymouth-set-default-theme 2>/dev/null || true)" = "marqueemark-startup" ]; then
+  for SAFE_PLYMOUTH_THEME in pix spinner text; do
+    if [ -d "/usr/share/plymouth/themes/$SAFE_PLYMOUTH_THEME" ]; then
+      say "Restoring the standard Plymouth boot theme"
+      sudo plymouth-set-default-theme -R "$SAFE_PLYMOUTH_THEME"
+      break
+    fi
+  done
+fi
 
 # -------------------------------------------------------------- rotation
 # Panels mount in portrait; which value is right-side-up depends on which

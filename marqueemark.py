@@ -78,7 +78,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.6-cabinet-shutdown.1"
+VERSION = "1.3.6-cabinet-shutdown.2"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -2686,13 +2686,25 @@ class Display:
             # Marquee is active; it is only rendered when switched back.
             self.electro_neosd = None
         self.current = None
-        if self.last_game:
-            self.show_game(self.last_game)
-        else:
-            self.show_idle()
+        self._redraw_current()
         print("[MarqueeMark] %s display mode: %s" %
               ("reasserted" if same_mode else "active", mode))
         return True
+
+    def _redraw_current(self):
+        """Restore the intended content after a mode or HDMI change.
+
+        State changes are still accepted while running headless, but image
+        conversion is deferred until SDL has acquired a real display.
+        """
+        if self.headless or self.screen is None:
+            return
+        if self.restore_callback:
+            self.restore_callback()
+        elif self.last_game:
+            self.show_game(self.last_game)
+        else:
+            self.show_idle()
 
     def _place(self, canvas, card, rect=None, tilt=None):
         """Put a window-sized card onto the canvas, tilt-corrected.
@@ -2774,6 +2786,8 @@ class Display:
         return surf
 
     def _show_electrocoin(self):
+        if self.headless or self.screen is None:
+            return
         # A fresh Ultrawide setup deliberately has no assumed cabinet art.
         # Keep the panel dark until the owner explicitly sends a layout.
         if not self.electro_config.get("layout_sent", True):
@@ -2815,7 +2829,11 @@ class Display:
             return  # a live calibration session owns the screen
         self.last_game = game
         if self.electrocoin:
-            self.electro_neosd = game; self._show_electrocoin(); return
+            self.electro_neosd = game
+        if self.headless or self.screen is None:
+            return
+        if self.electrocoin:
+            self._show_electrocoin(); return
         path = os.path.join(self.art_dir, "%s.png" % game["short"])
         if os.path.exists(path):
             surf = self._fit(pygame.image.load(path).convert())
@@ -2844,7 +2862,11 @@ class Display:
             return
         self.last_game = None
         if self.electrocoin:
-            self.electro_neosd = None; self._show_electrocoin(); return
+            self.electro_neosd = None
+        if self.headless or self.screen is None:
+            return
+        if self.electrocoin:
+            self._show_electrocoin(); return
         path = os.path.join(self.art_dir, GENERIC + ".png")
         if os.path.exists(path):
             self._fade_to(self._fit(pygame.image.load(path).convert()))
@@ -3007,12 +3029,19 @@ class Display:
         self.screen = screen
         self.headless = False
         self.phys = screen.get_size()
-        if not self.electrocoin:
+        if self.electrocoin:
+            self.size = self.phys
+            self.rect = pygame.Rect(0, 0, self.size[0], self.size[1])
+        else:
             self.size = (self.phys[1], self.phys[0]) \
                 if self.rotate in (90, 270) else self.phys
         self.current = None
         self.wake_count += 1
         print("[MarqueeMark] HDMI display detected; output restored")
+        if self.calibrating:
+            self._render_calibration_frame()
+        else:
+            self._redraw_current()
 
     def pump(self):
         self._update_shutdown_preview()
@@ -3138,6 +3167,8 @@ class Display:
         w["y"] = max(-w["h"] + 20, min(w["y"], self.size[1] - 20))
 
     def _render_calibration_frame(self):
+        if self.headless or self.screen is None:
+            return
         w = self.cal_work
         rect = pygame.Rect(w["x"], w["y"], w["w"], w["h"])
         surf = pygame.Surface(self.size)

@@ -5,6 +5,16 @@ identify the Electrocoin / Digital Marquee work in this repository.
 
 ## Unreleased — locked Neo Geo marquee release
 
+- Fixed a crash loop when a saved display mode is loaded while HDMI is
+  disconnected. Headless mode now retains display state and redraws it when
+  HDMI becomes available.
+- Restored tty1 as a local recovery path for installations affected by the
+  earlier console-lockdown change, and stopped selecting a custom Plymouth
+  theme during normal installation.
+- Guarded the optional Plymouth artwork against shutdown mode and zero-size
+  windows.
+- Validate sudoers rules before installing them.
+
 - Finalised the built-in Neo Geo 1 Slot, 2 Slot, 4 Slot, and 6 Slot artwork,
   all with consistent naming and stable library ordering. The active marquee
   remains highlighted in place rather than moving to the front of the list.
