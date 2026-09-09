@@ -132,10 +132,8 @@ class HeadlessDisplayTests(unittest.TestCase):
             stdout=marqueemark.subprocess.DEVNULL,
             stderr=marqueemark.subprocess.DEVNULL)
 
-    def test_native_startup_splash_is_deferred_headless(self):
-        with mock.patch.object(marqueemark.pygame.image, "load") as load:
-            self.assertFalse(self.display.show_startup_splash())
-        load.assert_not_called()
+    def test_native_startup_sequence_is_deferred_headless(self):
+        self.assertFalse(self.display.show_startup_splash())
 
 
 if __name__ == "__main__":

@@ -242,7 +242,6 @@ install_startup_splash() {
   sudo install -m 644 "$theme_file" "$theme_dir/marqueemark-startup.plymouth"
   sudo install -m 644 "$script_file" "$theme_dir/marqueemark-startup.script"
   sudo install -m 644 "$image_file" "$theme_dir/splash.png"
-  install -m 644 "$image_file" "$INSTALL_DIR/startup-splash.png"
   rm -f "$theme_file" "$script_file" "$image_file"
   sudo plymouth-set-default-theme -R marqueemark-startup
   BOOT_CONFIG_CHANGED=1

@@ -80,7 +80,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.6-cabinet-shutdown.5"
+VERSION = "1.3.6-cabinet-shutdown.6"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -528,7 +528,6 @@ CAL_QUEUE = queue.Queue()
 DISPLAY_QUEUE = queue.Queue()
 CABINET_POWEROFF_MARKER = Path("/run/marqueemark/cabinet-poweroff")
 SYSTEM_BOOT_MARKER = Path("/run/marqueemark/system-boot")
-STARTUP_SPLASH = Path(__file__).resolve().parent / "startup-splash.png"
 
 
 def queue_shutdown_sequence(_signum=None, _frame=None):
@@ -2964,25 +2963,47 @@ class Display:
         self.show_shutdown_countdown(seconds, seconds, 0)
 
     def show_startup_splash(self, seconds=4):
-        """Show boot art through the proven SDL/KMS renderer."""
-        if self.headless or not STARTUP_SPLASH.is_file():
+        """Play a native Neo Geo startup sequence after KMS is available."""
+        if self.headless or self.screen is None or not self.electrocoin:
             return False
-        try:
-            image = pygame.image.load(str(STARTUP_SPLASH)).convert()
-        except (OSError, pygame.error):
-            return False
-        canvas = pygame.Surface(self.size)
-        canvas.fill((0, 0, 0))
-        scale = min(self.size[0] / image.get_width(),
-                    self.size[1] / image.get_height(), 1.0)
-        if scale < 1.0:
-            image = pygame.transform.smoothscale(
-                image, (max(1, round(image.get_width() * scale)),
-                        max(1, round(image.get_height() * scale))))
-        canvas.blit(image, (max(0, (self.size[0] - image.get_width()) // 2), 0))
-        self._present(canvas)
-        deadline = time.monotonic() + seconds
-        while time.monotonic() < deadline:
+        started = time.monotonic()
+        while True:
+            elapsed = time.monotonic() - started
+            if elapsed >= seconds:
+                break
+            surf = pygame.Surface(self.size); surf.fill(BG)
+            panel = pygame.Rect(0, 0, self.size[0],
+                                min(ELECTROCOIN_VIEWPORT_HEIGHT, self.size[1]))
+            stage = pygame.Surface(panel.size); stage.fill((0, 0, 0))
+            stage_w, stage_h = stage.get_size()
+            logo_font = pygame.font.SysFont(
+                "Times New Roman", max(28, int(stage_h * .25)), bold=True)
+            sub_font = pygame.font.SysFont(None, max(16, int(stage_h * .085)),
+                                          bold=True)
+            snk_font = pygame.font.SysFont(None, max(18, int(stage_h * .09)),
+                                          bold=True)
+            logo = logo_font.render("NEO·GEO", True, (242, 242, 242))
+            # Begin black, expand the logo into place, then hold the completed
+            # boot card long enough for a cold HDMI panel to display it.
+            if elapsed >= .35:
+                progress = min(1.0, (elapsed - .35) / .9)
+                shown = pygame.transform.smoothscale(
+                    logo, (max(1, round(logo.get_width() * progress)),
+                           logo.get_height()))
+                stage.blit(shown, shown.get_rect(
+                    center=(stage_w // 2, int(stage_h * .38))))
+                if progress >= 1.0:
+                    specs = sub_font.render("MAX 330 MEGA", True, (236, 236, 236))
+                    progear = sub_font.render("PRO-GEAR SPEC", True, (236, 236, 236))
+                    snk = snk_font.render("SNK", True, (30, 92, 230))
+                    stage.blit(specs, specs.get_rect(
+                        center=(stage_w // 2, int(stage_h * .56))))
+                    stage.blit(progear, progear.get_rect(
+                        center=(stage_w // 2, int(stage_h * .65))))
+                    stage.blit(snk, snk.get_rect(
+                        center=(stage_w // 2, int(stage_h * .79))))
+            surf.blit(stage, panel)
+            self._present(surf)
             if not self.pump():
                 break
             time.sleep(0.05)

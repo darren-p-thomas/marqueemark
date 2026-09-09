@@ -36,6 +36,9 @@ identify the Electrocoin / Digital Marquee work in this repository.
   requests power-off; the completed countdown now hands directly to shutdown.
 - Render the opted-in startup art through MarqueeMark after KMS is available,
   so a cold boot does not depend on Plymouth winning the early HDMI race.
+- Draw that startup sequence procedurally through the same canvas proven by
+  the shutdown animation, avoiding a static-image path that rendered black on
+  the physical cold-start test.
 - Validate sudoers rules before installing them.
 
 - Finalised the built-in Neo Geo 1 Slot, 2 Slot, 4 Slot, and 6 Slot artwork,
