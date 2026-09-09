@@ -337,7 +337,7 @@ say "Installing systemd service"
 sudo tee "$SERVICE" >/dev/null <<UNIT
 [Unit]
 Description=MarqueeMark digital marquee
-After=multi-user.target
+After=getty@tty1.service
 
 [Service]
 User=$USER_NAME
@@ -346,6 +346,9 @@ Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=SDL_AUDIODRIVER=dummy
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=$INSTALL_DIR
+# Clear tty1 only after its recovery getty has started. The escape sequence
+# erases retained boot text without stopping the getty or removing the tty.
+ExecStartPre=+/bin/sh -c 'printf "\\x1b[2J\\x1b[H" > /dev/tty1'
 ExecStart=/usr/bin/python3 $INSTALL_DIR/marqueemark.py $RUN_ARGS
 # Pygame restores the text console while exiting, so blank only after its
 # process is gone. Plymouth then owns a black reboot/shutdown background.
