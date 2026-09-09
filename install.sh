@@ -55,6 +55,7 @@ sudo chown -R "$USER_NAME:$USER_NAME" "$INSTALL_DIR"
 # download must never clobber a working install.
 IS_UPDATE=0
 [ -f "$SERVICE" ] && IS_UPDATE=1
+BOOT_CONFIG_CHANGED=0
 
 say "Downloading marqueemark.py"
 TMP_PY="$(mktemp)"
@@ -182,15 +183,23 @@ if [ -n "$CMDLINE_FILE" ] && \
   if ! grep -qw 'console=tty1' "$CMDLINE_FILE"; then
     say "Restoring the local recovery console"
     sudo sed -i 's/$/ console=tty1/' "$CMDLINE_FILE"
+    BOOT_CONFIG_CHANGED=1
   fi
   # These three arguments were added by the affected installer and could be
   # duplicated each time it ran. Remove every copy while retaining all other
   # arguments, including user-supplied video= modes.
-  sudo sed -i \
-    -e 's/[[:space:]]loglevel=0//g' \
-    -e 's/[[:space:]]systemd.show_status=false//g' \
-    -e 's/[[:space:]]vt.global_cursor_default=0//g' \
-    "$CMDLINE_FILE"
+  if grep -Eq '(^|[[:space:]])(loglevel=0|systemd\.show_status=false|vt\.global_cursor_default=0)([[:space:]]|$)' \
+      "$CMDLINE_FILE"; then
+    sudo sed -i \
+      -e 's/[[:space:]]loglevel=0//g' \
+      -e 's/[[:space:]]systemd.show_status=false//g' \
+      -e 's/[[:space:]]vt.global_cursor_default=0//g' \
+      "$CMDLINE_FILE"
+    BOOT_CONFIG_CHANGED=1
+  fi
+  if ! systemctl is-enabled getty@tty1.service >/dev/null 2>&1; then
+    BOOT_CONFIG_CHANGED=1
+  fi
   sudo systemctl enable getty@tty1.service >/dev/null 2>&1 || true
   echo "  tty1 recovery login enabled; unrelated boot options were preserved."
 fi
@@ -206,6 +215,7 @@ if command -v plymouth-set-default-theme >/dev/null && \
     if [ -d "/usr/share/plymouth/themes/$SAFE_PLYMOUTH_THEME" ]; then
       say "Restoring the standard Plymouth boot theme"
       sudo plymouth-set-default-theme -R "$SAFE_PLYMOUTH_THEME"
+      BOOT_CONFIG_CHANGED=1
       break
     fi
   done
@@ -320,7 +330,11 @@ fi
 if [ "$IS_UPDATE" -eq 1 ]; then
   say "Update complete, restarting the service"
   sudo systemctl restart marqueemark
-  echo "  No reboot needed. Watch it with: journalctl -u marqueemark -f"
+  if [ "$BOOT_CONFIG_CHANGED" -eq 1 ]; then
+    echo "  Boot recovery settings changed; reboot to apply and verify them: sudo reboot"
+  else
+    echo "  No reboot needed. Watch it with: journalctl -u marqueemark -f"
+  fi
   exit 0
 fi
 
