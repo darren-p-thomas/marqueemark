@@ -39,6 +39,8 @@ identify the Electrocoin / Digital Marquee work in this repository.
 - Draw that startup sequence procedurally through the same canvas proven by
   the shutdown animation, avoiding a static-image path that rendered black on
   the physical cold-start test.
+- Keep Plymouth's early handoff black so it cannot duplicate the later native
+  startup sequence on cold boot.
 - Validate sudoers rules before installing them.
 
 - Finalised the built-in Neo Geo 1 Slot, 2 Slot, 4 Slot, and 6 Slot artwork,

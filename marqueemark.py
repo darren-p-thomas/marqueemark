@@ -80,7 +80,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.6-cabinet-shutdown.6"
+VERSION = "1.3.6-cabinet-shutdown.7"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
