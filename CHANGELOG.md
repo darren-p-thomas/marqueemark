@@ -13,6 +13,8 @@ identify the Electrocoin / Digital Marquee work in this repository.
   theme during normal installation.
 - Guarded the optional Plymouth artwork against shutdown mode and zero-size
   windows.
+- Made the Neo Geo Plymouth theme an explicit, persistent installer opt-in;
+  normal installs retain the stock Raspberry Pi OS boot presentation.
 - Validate sudoers rules before installing them.
 
 - Finalised the built-in Neo Geo 1 Slot, 2 Slot, 4 Slot, and 6 Slot artwork,

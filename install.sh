@@ -205,12 +205,48 @@ if [ -n "$CMDLINE_FILE" ] && \
 fi
 
 # ----------------------------------------------------------- boot splash
-# A custom Plymouth theme is intentionally not selected by the installer.
-# Boot presentation must never make a stock installation harder to recover.
-# If an affected release selected our old theme, return to Raspberry Pi OS's
-# normal theme and rebuild the initramfs.
-if command -v plymouth-set-default-theme >/dev/null && \
-   [ "$(plymouth-set-default-theme 2>/dev/null || true)" = "marqueemark-startup" ]; then
+# Keep the stock, recoverable boot presentation unless the owner explicitly
+# enables the Neo Geo theme. The choice persists in /opt across later updates.
+# Set MARQUEEMARK_NEO_GEO_SPLASH=1 to enable or =0 to disable it.
+SPLASH_MARKER="$INSTALL_DIR/neo_geo_splash.enabled"
+case "${MARQUEEMARK_NEO_GEO_SPLASH:-}" in
+  1|true|yes|on) touch "$SPLASH_MARKER" ;;
+  0|false|no|off) rm -f "$SPLASH_MARKER" ;;
+esac
+
+install_startup_splash() {
+  if ! command -v plymouth-set-default-theme >/dev/null; then
+    echo "  Plymouth is not installed — skip optional Neo Geo startup splash."
+    return
+  fi
+
+  local theme_dir="/usr/share/plymouth/themes/marqueemark-startup"
+  local theme_file script_file image_file
+  theme_file="$(mktemp)"
+  script_file="$(mktemp)"
+  image_file="$(mktemp)"
+  if ! curl -fsSL "$REPO_RAW/plymouth/marqueemark-startup/marqueemark-startup.plymouth" -o "$theme_file" || \
+     ! curl -fsSL "$REPO_RAW/plymouth/marqueemark-startup/marqueemark-startup.script" -o "$script_file" || \
+     ! curl -fsSL "$REPO_RAW/plymouth/marqueemark-startup/splash.png" -o "$image_file"; then
+    rm -f "$theme_file" "$script_file" "$image_file"
+    echo "  could not download Neo Geo startup splash — keep the current boot theme."
+    return
+  fi
+
+  say "Installing the optional Neo Geo startup splash"
+  sudo install -d -m 755 "$theme_dir"
+  sudo install -m 644 "$theme_file" "$theme_dir/marqueemark-startup.plymouth"
+  sudo install -m 644 "$script_file" "$theme_dir/marqueemark-startup.script"
+  sudo install -m 644 "$image_file" "$theme_dir/splash.png"
+  rm -f "$theme_file" "$script_file" "$image_file"
+  sudo plymouth-set-default-theme -R marqueemark-startup
+  BOOT_CONFIG_CHANGED=1
+}
+
+if [ -f "$SPLASH_MARKER" ]; then
+  install_startup_splash
+elif command -v plymouth-set-default-theme >/dev/null && \
+     [ "$(plymouth-set-default-theme 2>/dev/null || true)" = "marqueemark-startup" ]; then
   for SAFE_PLYMOUTH_THEME in pix spinner text; do
     if [ -d "/usr/share/plymouth/themes/$SAFE_PLYMOUTH_THEME" ]; then
       say "Restoring the standard Plymouth boot theme"
