@@ -22,7 +22,10 @@
 
 set -euo pipefail
 
-REPO_RAW="https://raw.githubusercontent.com/darren-p-thomas/marqueemark/main"
+# Test builds can point at an exact commit without changing the normal public
+# installer URL. This is especially useful for validating installer updates
+# on hardware before merging them.
+REPO_RAW="${MARQUEEMARK_REPO_RAW:-https://raw.githubusercontent.com/darren-p-thomas/marqueemark/main}"
 INSTALL_DIR="/opt/marqueemark"
 SERVICE="/etc/systemd/system/marqueemark.service"
 
