@@ -245,6 +245,17 @@ install_startup_splash() {
 
 if [ -f "$SPLASH_MARKER" ]; then
   install_startup_splash
+  # A user who explicitly selects the cabinet presentation also opts into a
+  # quiet handoff. Keep tty1 and its getty intact for recovery; these options
+  # suppress routine kernel/systemd chatter without removing the console.
+  if [ -n "$CMDLINE_FILE" ]; then
+    for QUIET_ARG in loglevel=0 systemd.show_status=false; do
+      if ! grep -qw "$QUIET_ARG" "$CMDLINE_FILE"; then
+        sudo sed -i "s/$/ $QUIET_ARG/" "$CMDLINE_FILE"
+        BOOT_CONFIG_CHANGED=1
+      fi
+    done
+  fi
 elif command -v plymouth-set-default-theme >/dev/null && \
      [ "$(plymouth-set-default-theme 2>/dev/null || true)" = "marqueemark-startup" ]; then
   for SAFE_PLYMOUTH_THEME in pix spinner text; do

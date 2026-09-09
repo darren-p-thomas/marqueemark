@@ -42,8 +42,9 @@ reversible.
   stretched.
 - **Optional Neo Geo boot splash**: set `MARQUEEMARK_NEO_GEO_SPLASH=1` when
   running the installer to select the guarded custom Plymouth theme. The
-  choice persists across updates. Normal installs retain Raspberry Pi OS's
-  stock boot theme and a usable tty1 recovery login.
+  choice persists across updates and enables a quiet black shutdown handoff.
+  Normal installs retain Raspberry Pi OS's stock boot theme. Both choices
+  retain a usable tty1 recovery login.
 - **Second marquee support**: a slot with a real cartridge instead of a
   NeoSD Pro can't announce itself, so a second panel (on its own Pi) can
   be set to manual mode instead. Pick its art from the same kind of admin
