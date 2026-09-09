@@ -44,7 +44,9 @@ reversible.
   running the installer to select the guarded custom Plymouth theme. The
   choice persists across updates and enables a quiet black shutdown handoff.
   Normal installs retain Raspberry Pi OS's stock boot theme. Both choices
-  retain a usable tty1 recovery login. With the optional presentation,
+  retain a usable local recovery login. With the optional presentation,
+  press **Ctrl+Alt+F2** to reach that login on tty2; tty1 is reserved for the
+  clean marquee handoff. In addition,
   cloud-init diagnostics remain in the system journal instead of also being
   copied into tty1's visible framebuffer.
 - **Second marquee support**: a slot with a real cartridge instead of a

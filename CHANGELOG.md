@@ -26,6 +26,9 @@ identify the Electrocoin / Digital Marquee work in this repository.
 - Clear retained tty1 framebuffer text after both its recovery getty and
   MarqueeMark have settled, avoiding a race where agetty repainted its login
   banner after the original pre-start clear.
+- Moved the opted-in cabinet presentation's local recovery login to tty2,
+  because agetty repaints tty1 whenever SDL releases KMS. Default installs
+  continue to use tty1; cabinet users retain recovery via Ctrl+Alt+F2.
 - Validate sudoers rules before installing them.
 
 - Finalised the built-in Neo Geo 1 Slot, 2 Slot, 4 Slot, and 6 Slot artwork,

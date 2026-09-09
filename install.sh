@@ -209,6 +209,7 @@ fi
 # enables the Neo Geo theme. The choice persists in /opt across later updates.
 # Set MARQUEEMARK_NEO_GEO_SPLASH=1 to enable or =0 to disable it.
 SPLASH_MARKER="$INSTALL_DIR/neo_geo_splash.enabled"
+RECOVERY_GETTY="getty@tty1.service"
 case "${MARQUEEMARK_NEO_GEO_SPLASH:-}" in
   1|true|yes|on) touch "$SPLASH_MARKER" ;;
   0|false|no|off) rm -f "$SPLASH_MARKER" ;;
@@ -262,9 +263,15 @@ configure_cloud_console_output() {
 if [ -f "$SPLASH_MARKER" ]; then
   install_startup_splash
   configure_cloud_console_output
+  # agetty redraws its prompt whenever tty1 becomes active, including when
+  # SDL releases KMS during shutdown. Keep local recovery on tty2 so the
+  # presentation tty can remain black without removing console access.
+  RECOVERY_GETTY="getty@tty2.service"
+  sudo systemctl enable --now getty@tty2.service >/dev/null 2>&1 || true
+  sudo systemctl disable --now getty@tty1.service >/dev/null 2>&1 || true
   # A user who explicitly selects the cabinet presentation also opts into a
-  # quiet handoff. Keep tty1 and its getty intact for recovery; these options
-  # suppress routine kernel/systemd chatter without removing the console.
+  # quiet handoff. These options suppress routine kernel/systemd chatter
+  # without removing local console recovery on tty2.
   if [ -n "$CMDLINE_FILE" ]; then
     for QUIET_ARG in loglevel=0 systemd.show_status=false vt.global_cursor_default=0; do
       if ! grep -qw "$QUIET_ARG" "$CMDLINE_FILE"; then
@@ -273,16 +280,19 @@ if [ -f "$SPLASH_MARKER" ]; then
       fi
     done
   fi
-elif command -v plymouth-set-default-theme >/dev/null && \
+else
+  sudo systemctl enable --now getty@tty1.service >/dev/null 2>&1 || true
+  if command -v plymouth-set-default-theme >/dev/null && \
      [ "$(plymouth-set-default-theme 2>/dev/null || true)" = "marqueemark-startup" ]; then
-  for SAFE_PLYMOUTH_THEME in pix spinner text; do
-    if [ -d "/usr/share/plymouth/themes/$SAFE_PLYMOUTH_THEME" ]; then
-      say "Restoring the standard Plymouth boot theme"
-      sudo plymouth-set-default-theme -R "$SAFE_PLYMOUTH_THEME"
-      BOOT_CONFIG_CHANGED=1
-      break
-    fi
-  done
+    for SAFE_PLYMOUTH_THEME in pix spinner text; do
+      if [ -d "/usr/share/plymouth/themes/$SAFE_PLYMOUTH_THEME" ]; then
+        say "Restoring the standard Plymouth boot theme"
+        sudo plymouth-set-default-theme -R "$SAFE_PLYMOUTH_THEME"
+        BOOT_CONFIG_CHANGED=1
+        break
+      fi
+    done
+  fi
   for CLOUD_UNIT in cloud-config cloud-final cloud-init-local cloud-init-main cloud-init-network; do
     sudo rm -f "/etc/systemd/system/$CLOUD_UNIT.service.d/marqueemark-console.conf"
   done
@@ -337,7 +347,7 @@ say "Installing systemd service"
 sudo tee "$SERVICE" >/dev/null <<UNIT
 [Unit]
 Description=MarqueeMark digital marquee
-After=getty@tty1.service
+After=$RECOVERY_GETTY
 
 [Service]
 User=$USER_NAME
