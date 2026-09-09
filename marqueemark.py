@@ -80,7 +80,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.6-cabinet-shutdown.7"
+VERSION = "1.3.6-cabinet-shutdown.8"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -3751,6 +3751,14 @@ def main():
     except OSError as e:
         print("[MarqueeMark] overlay disabled (%s)" % e)
 
+    # Show boot art before any saved-layout reassertion can redraw the last
+    # marquee. The normal game restore then becomes the single handoff out of
+    # the startup sequence.
+    if SYSTEM_BOOT_MARKER.exists():
+        SYSTEM_BOOT_MARKER.unlink(missing_ok=True)
+        if display.show_startup_splash():
+            print("[MarqueeMark] native startup splash complete")
+
     # ``Display(...)`` receives the persisted type as its initial hint, but
     # HDMI/KMS can retain the old framebuffer during a cold service start.
     # Reassert an explicitly saved choice after startup so the physical panel
@@ -3760,11 +3768,6 @@ def main():
     if configured_mode:
         display.set_layout_mode(configured_mode)
         print("[MarqueeMark] startup display mode enforced: %s" % configured_mode)
-
-    if SYSTEM_BOOT_MARKER.exists():
-        SYSTEM_BOOT_MARKER.unlink(missing_ok=True)
-        if display.show_startup_splash():
-            print("[MarqueeMark] native startup splash complete")
 
     def publish(game):
         if overlay:

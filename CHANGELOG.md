@@ -41,6 +41,8 @@ identify the Electrocoin / Digital Marquee work in this repository.
   the physical cold-start test.
 - Keep Plymouth's early handoff black so it cannot duplicate the later native
   startup sequence on cold boot.
+- Run the native startup sequence before saved-layout restoration, preventing
+  the previous marquee from flashing before the boot animation.
 - Validate sudoers rules before installing them.
 
 - Finalised the built-in Neo Geo 1 Slot, 2 Slot, 4 Slot, and 6 Slot artwork,
