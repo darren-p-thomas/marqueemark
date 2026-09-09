@@ -249,7 +249,7 @@ if [ -f "$SPLASH_MARKER" ]; then
   # quiet handoff. Keep tty1 and its getty intact for recovery; these options
   # suppress routine kernel/systemd chatter without removing the console.
   if [ -n "$CMDLINE_FILE" ]; then
-    for QUIET_ARG in loglevel=0 systemd.show_status=false; do
+    for QUIET_ARG in loglevel=0 systemd.show_status=false vt.global_cursor_default=0; do
       if ! grep -qw "$QUIET_ARG" "$CMDLINE_FILE"; then
         sudo sed -i "s/$/ $QUIET_ARG/" "$CMDLINE_FILE"
         BOOT_CONFIG_CHANGED=1
@@ -327,9 +327,9 @@ Environment=SDL_AUDIODRIVER=dummy
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=$INSTALL_DIR
 ExecStart=/usr/bin/python3 $INSTALL_DIR/marqueemark.py $RUN_ARGS
-# Blank immediately when systemd stops the renderer. Plymouth then owns a
-# black reboot/shutdown background until the display powers off or boots.
-ExecStop=-/bin/sh -c 'printf 1 | /usr/bin/sudo -n /usr/bin/tee /sys/class/graphics/fb0/blank >/dev/null'
+# Pygame restores the text console while exiting, so blank only after its
+# process is gone. Plymouth then owns a black reboot/shutdown background.
+ExecStopPost=-/bin/sh -c 'printf 1 | /usr/bin/sudo -n /usr/bin/tee /sys/class/graphics/fb0/blank >/dev/null'
 Restart=always
 RestartSec=3
 TimeoutStopSec=5
