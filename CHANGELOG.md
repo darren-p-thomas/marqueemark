@@ -17,6 +17,9 @@ identify the Electrocoin / Digital Marquee work in this repository.
   normal installs retain the stock Raspberry Pi OS boot presentation.
 - Made the opted-in theme paint shutdown black before inspecting display
   geometry and quietly hand off the console while retaining tty1 recovery.
+- Limited splash artwork to Plymouth's `boot-up` mode and blanked the
+  framebuffer as soon as systemd stops MarqueeMark, preventing stale boot
+  art and console output from flashing during reboot.
 - Validate sudoers rules before installing them.
 
 - Finalised the built-in Neo Geo 1 Slot, 2 Slot, 4 Slot, and 6 Slot artwork,

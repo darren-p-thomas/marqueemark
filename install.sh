@@ -327,6 +327,9 @@ Environment=SDL_AUDIODRIVER=dummy
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=$INSTALL_DIR
 ExecStart=/usr/bin/python3 $INSTALL_DIR/marqueemark.py $RUN_ARGS
+# Blank immediately when systemd stops the renderer. Plymouth then owns a
+# black reboot/shutdown background until the display powers off or boots.
+ExecStop=-/bin/sh -c 'printf 1 | /usr/bin/sudo -n /usr/bin/tee /sys/class/graphics/fb0/blank >/dev/null'
 Restart=always
 RestartSec=3
 TimeoutStopSec=5
