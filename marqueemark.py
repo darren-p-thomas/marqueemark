@@ -69,6 +69,7 @@ import json
 import os
 import queue
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -78,7 +79,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pygame
 import serial
 
-VERSION = "1.3.6-cabinet-shutdown.2"
+VERSION = "1.3.6-cabinet-shutdown.3"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -524,6 +525,11 @@ CAL_QUEUE = queue.Queue()
 # Sleep/Wake requests from the admin page. Same reason as CAL_QUEUE: SDL
 # and DRM calls must happen on the main thread, not in an HTTP handler.
 DISPLAY_QUEUE = queue.Queue()
+
+
+def queue_shutdown_sequence(_signum=None, _frame=None):
+    """Hand a machine-shutdown signal to the renderer's main thread."""
+    DISPLAY_QUEUE.put(("shutdown_sequence",))
 
 
 def load_calibration():
@@ -2946,10 +2952,11 @@ class Display:
         self._present(surf)
         self.current = surf
 
-    def start_shutdown_preview(self, seconds=10):
+    def start_shutdown_preview(self, seconds=10, restore=True):
         """Play the shutdown art on demand, never requesting power-off."""
         self.wake(force=True)
-        self._shutdown_preview = {"started": time.monotonic(), "seconds": seconds}
+        self._shutdown_preview = {"started": time.monotonic(), "seconds": seconds,
+                                  "restore": restore}
         self.show_shutdown_countdown(seconds, seconds, 0)
 
     def _update_shutdown_preview(self):
@@ -2962,7 +2969,9 @@ class Display:
                                          preview["seconds"], elapsed)
             return
         self._shutdown_preview = None
-        if self.last_game:
+        if not preview.get("restore", True):
+            self.blank()
+        elif self.last_game:
             self.show_game(self.last_game)
         else:
             self.show_idle()
@@ -3082,6 +3091,8 @@ class Display:
                 self.current = None  # force a redraw on the next show_*
             elif cmd[0] == "shutdown_preview":
                 self.start_shutdown_preview()
+            elif cmd[0] == "shutdown_sequence":
+                self.start_shutdown_preview(restore=False)
 
     def process_calibration_queue(self):
         changed = False
@@ -3662,6 +3673,11 @@ def main():
                          "This panel then sleeps and wakes with that cabinet. "
                          "Omit to control sleep by hand from the admin page.")
     args = ap.parse_args()
+
+    # systemd sends SIGUSR1 only for a real machine reboot/power-off. Queue
+    # the renderer work so Pygame continues to run exclusively on this main
+    # thread rather than doing display work inside the signal handler.
+    signal.signal(signal.SIGUSR1, queue_shutdown_sequence)
 
     initial_mode = load_display_mode("ultrawide" if args.electrocoin else (args.layout or "mini"))
     display = Display(args.art, rotate=args.rotate, layout_mode=initial_mode)

@@ -56,6 +56,8 @@ sudo chown -R "$USER_NAME:$USER_NAME" "$INSTALL_DIR"
 IS_UPDATE=0
 [ -f "$SERVICE" ] && IS_UPDATE=1
 BOOT_CONFIG_CHANGED=0
+SHUTDOWN_ANIMATION_STOP=""
+SERVICE_STOP_TIMEOUT=5
 
 say "Downloading marqueemark.py"
 TMP_PY="$(mktemp)"
@@ -267,6 +269,8 @@ if [ -f "$SPLASH_MARKER" ]; then
   # SDL releases KMS during shutdown. Keep local recovery on tty2 so the
   # presentation tty can remain black without removing console access.
   RECOVERY_GETTY="getty@tty2.service"
+  SHUTDOWN_ANIMATION_STOP="ExecStop=/bin/sh -c 'if [ \"\$(/usr/bin/systemctl is-system-running 2>/dev/null)\" = stopping ]; then /bin/kill -USR1 \"\$MAINPID\"; /bin/sleep 11; fi'"
+  SERVICE_STOP_TIMEOUT=15
   sudo systemctl enable --now getty@tty2.service >/dev/null 2>&1 || true
   sudo systemctl disable --now getty@tty1.service >/dev/null 2>&1 || true
   # A user who explicitly selects the cabinet presentation also opts into a
@@ -361,12 +365,13 @@ ExecStart=/usr/bin/python3 $INSTALL_DIR/marqueemark.py $RUN_ARGS
 # banner. Wait until both it and MarqueeMark have settled, then reset the
 # underlying tty buffer while KMS owns the visible display.
 ExecStartPost=+/bin/sh -c 'sleep 2; printf "\\x1bc\\x1b[2J\\x1b[H" > /dev/tty1'
+$SHUTDOWN_ANIMATION_STOP
 # Pygame restores the text console while exiting, so blank only after its
 # process is gone. Plymouth then owns a black reboot/shutdown background.
 ExecStopPost=-/bin/sh -c 'printf 1 | /usr/bin/sudo -n /usr/bin/tee /sys/class/graphics/fb0/blank >/dev/null'
 Restart=always
 RestartSec=3
-TimeoutStopSec=5
+TimeoutStopSec=$SERVICE_STOP_TIMEOUT
 KillMode=control-group
 
 [Install]

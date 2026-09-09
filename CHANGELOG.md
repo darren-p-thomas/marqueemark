@@ -29,6 +29,9 @@ identify the Electrocoin / Digital Marquee work in this repository.
 - Moved the opted-in cabinet presentation's local recovery login to tty2,
   because agetty repaints tty1 whenever SDL releases KMS. Default installs
   continue to use tty1; cabinet users retain recovery via Ctrl+Alt+F2.
+- Play the native Neo Geo shutdown animation for real system reboots and
+  power-offs, while skipping it for installer updates and ordinary service
+  restarts. The sequence finishes on black before systemd stops the renderer.
 - Validate sudoers rules before installing them.
 
 - Finalised the built-in Neo Geo 1 Slot, 2 Slot, 4 Slot, and 6 Slot artwork,

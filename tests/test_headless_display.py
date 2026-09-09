@@ -103,6 +103,23 @@ class HeadlessDisplayTests(unittest.TestCase):
         self.assertEqual(self.display.size, (1366, 768))
         self.assertEqual(self.display.rect, pygame.Rect(0, 0, 1366, 768))
 
+    def test_machine_shutdown_sequence_finishes_black(self):
+        self.display._shutdown_preview = {"started": 10, "seconds": 10,
+                                          "restore": False}
+        with mock.patch.object(marqueemark.time, "monotonic", return_value=20), \
+             mock.patch.object(self.display, "blank") as blank, \
+             mock.patch.object(self.display, "show_idle") as show_idle:
+            self.display._update_shutdown_preview()
+        blank.assert_called_once_with()
+        show_idle.assert_not_called()
+
+    def test_machine_shutdown_signal_queues_renderer_work(self):
+        while not marqueemark.DISPLAY_QUEUE.empty():
+            marqueemark.DISPLAY_QUEUE.get_nowait()
+        marqueemark.queue_shutdown_sequence()
+        self.assertEqual(marqueemark.DISPLAY_QUEUE.get_nowait(),
+                         ("shutdown_sequence",))
+
 
 if __name__ == "__main__":
     unittest.main()
