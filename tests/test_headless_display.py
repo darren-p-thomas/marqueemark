@@ -120,6 +120,23 @@ class HeadlessDisplayTests(unittest.TestCase):
         self.assertEqual(marqueemark.DISPLAY_QUEUE.get_nowait(),
                          ("shutdown_sequence",))
 
+    def test_cabinet_poweroff_marks_completed_animation(self):
+        marker = mock.Mock()
+        with mock.patch.object(marqueemark, "CABINET_POWEROFF_MARKER", marker), \
+             mock.patch.object(marqueemark.subprocess, "run"), \
+             mock.patch.object(marqueemark.subprocess, "Popen") as popen:
+            marqueemark._poweroff_pi()
+        marker.touch.assert_called_once_with()
+        popen.assert_called_once_with(
+            ["sudo", "-n", "/usr/bin/systemctl", "poweroff"],
+            stdout=marqueemark.subprocess.DEVNULL,
+            stderr=marqueemark.subprocess.DEVNULL)
+
+    def test_native_startup_splash_is_deferred_headless(self):
+        with mock.patch.object(marqueemark.pygame.image, "load") as load:
+            self.assertFalse(self.display.show_startup_splash())
+        load.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

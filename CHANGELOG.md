@@ -32,6 +32,10 @@ identify the Electrocoin / Digital Marquee work in this repository.
 - Play the native Neo Geo shutdown animation for real system reboots and
   power-offs, while skipping it for installer updates and ordinary service
   restarts. The sequence finishes on black before systemd stops the renderer.
+- Avoid replaying that animation when the cabinet-loss countdown itself
+  requests power-off; the completed countdown now hands directly to shutdown.
+- Render the opted-in startup art through MarqueeMark after KMS is available,
+  so a cold boot does not depend on Plymouth winning the early HDMI race.
 - Validate sudoers rules before installing them.
 
 - Finalised the built-in Neo Geo 1 Slot, 2 Slot, 4 Slot, and 6 Slot artwork,

@@ -241,6 +241,7 @@ install_startup_splash() {
   sudo install -m 644 "$theme_file" "$theme_dir/marqueemark-startup.plymouth"
   sudo install -m 644 "$script_file" "$theme_dir/marqueemark-startup.script"
   sudo install -m 644 "$image_file" "$theme_dir/splash.png"
+  install -m 644 "$image_file" "$INSTALL_DIR/startup-splash.png"
   rm -f "$theme_file" "$script_file" "$image_file"
   sudo plymouth-set-default-theme -R marqueemark-startup
   BOOT_CONFIG_CHANGED=1
@@ -269,7 +270,7 @@ if [ -f "$SPLASH_MARKER" ]; then
   # SDL releases KMS during shutdown. Keep local recovery on tty2 so the
   # presentation tty can remain black without removing console access.
   RECOVERY_GETTY="getty@tty2.service"
-  SHUTDOWN_ANIMATION_STOP="ExecStop=/bin/sh -c 'if [ \"\$(/usr/bin/systemctl is-system-running 2>/dev/null)\" = stopping ]; then /bin/kill -USR1 \"\$MAINPID\"; /bin/sleep 11; fi'"
+  SHUTDOWN_ANIMATION_STOP="ExecStop=/bin/sh -c 'if [ -e /run/marqueemark/cabinet-poweroff ]; then /bin/rm -f /run/marqueemark/cabinet-poweroff; elif [ \"\$(/usr/bin/systemctl is-system-running 2>/dev/null)\" = stopping ]; then /bin/kill -USR1 \"\$MAINPID\"; /bin/sleep 11; fi'"
   SERVICE_STOP_TIMEOUT=15
   sudo systemctl enable --now getty@tty2.service >/dev/null 2>&1 || true
   sudo systemctl disable --now getty@tty1.service >/dev/null 2>&1 || true
@@ -356,10 +357,13 @@ After=$RECOVERY_GETTY
 [Service]
 User=$USER_NAME
 SupplementaryGroups=video render input dialout
+RuntimeDirectory=marqueemark
+RuntimeDirectoryMode=0755
 Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=SDL_AUDIODRIVER=dummy
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=$INSTALL_DIR
+ExecStartPre=/bin/sh -c 'if [ "$(/usr/bin/systemctl is-system-running 2>/dev/null)" = starting ]; then /usr/bin/touch /run/marqueemark/system-boot; fi'
 ExecStart=/usr/bin/python3 $INSTALL_DIR/marqueemark.py $RUN_ARGS
 # systemd considers getty started before agetty has necessarily printed its
 # banner. Wait until both it and MarqueeMark have settled, then reset the

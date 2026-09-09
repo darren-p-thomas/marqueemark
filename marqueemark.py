@@ -74,12 +74,13 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pygame
 import serial
 
-VERSION = "1.3.6-cabinet-shutdown.3"
+VERSION = "1.3.6-cabinet-shutdown.4"
 
 MAGIC = b"\x99\x88\x3a"
 FRAME_LEN = 61
@@ -525,6 +526,9 @@ CAL_QUEUE = queue.Queue()
 # Sleep/Wake requests from the admin page. Same reason as CAL_QUEUE: SDL
 # and DRM calls must happen on the main thread, not in an HTTP handler.
 DISPLAY_QUEUE = queue.Queue()
+CABINET_POWEROFF_MARKER = Path("/run/marqueemark/cabinet-poweroff")
+SYSTEM_BOOT_MARKER = Path("/run/marqueemark/system-boot")
+STARTUP_SPLASH = Path(__file__).resolve().parent / "startup-splash.png"
 
 
 def queue_shutdown_sequence(_signum=None, _frame=None):
@@ -2959,6 +2963,31 @@ class Display:
                                   "restore": restore}
         self.show_shutdown_countdown(seconds, seconds, 0)
 
+    def show_startup_splash(self, seconds=4):
+        """Show boot art through the proven SDL/KMS renderer."""
+        if self.headless or not STARTUP_SPLASH.is_file():
+            return False
+        try:
+            image = pygame.image.load(str(STARTUP_SPLASH)).convert()
+        except (OSError, pygame.error):
+            return False
+        canvas = pygame.Surface(self.size)
+        canvas.fill((0, 0, 0))
+        scale = min(self.size[0] / image.get_width(),
+                    self.size[1] / image.get_height(), 1.0)
+        if scale < 1.0:
+            image = pygame.transform.smoothscale(
+                image, (max(1, round(image.get_width() * scale)),
+                        max(1, round(image.get_height() * scale))))
+        canvas.blit(image, (max(0, (self.size[0] - image.get_width()) // 2), 0))
+        self._present(canvas)
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if not self.pump():
+                break
+            time.sleep(0.05)
+        return True
+
     def _update_shutdown_preview(self):
         preview = self._shutdown_preview
         if not preview:
@@ -3424,6 +3453,11 @@ def _poweroff_pi():
     can invoke it directly.
     """
     try:
+        # The cabinet-loss path has already rendered its full countdown.
+        # Tell the systemd stop hook not to play the manual reboot animation
+        # a second time. RuntimeDirectory ensures this marker cannot survive
+        # a reboot or outlive the service.
+        CABINET_POWEROFF_MARKER.touch()
         # SDL releases the DRM framebuffer as systemd stops this service.
         # Without blanking fb0 first, the Linux console can flash a final
         # shutdown line over the completed black frame.  This permission is
@@ -3705,6 +3739,11 @@ def main():
     if configured_mode:
         display.set_layout_mode(configured_mode)
         print("[MarqueeMark] startup display mode enforced: %s" % configured_mode)
+
+    if SYSTEM_BOOT_MARKER.exists():
+        SYSTEM_BOOT_MARKER.unlink(missing_ok=True)
+        if display.show_startup_splash():
+            print("[MarqueeMark] native startup splash complete")
 
     def publish(game):
         if overlay:
