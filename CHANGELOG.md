@@ -23,9 +23,9 @@ identify the Electrocoin / Digital Marquee work in this repository.
 - Kept Raspberry Pi OS cloud-init boot output in journald for the opted-in
   cabinet presentation, preventing its saved tty1 buffer from resurfacing at
   shutdown while preserving the tty1 recovery login.
-- Cleared retained tty1 framebuffer text after its recovery getty starts and
-  before MarqueeMark takes over the display, so releasing KMS reveals an empty
-  console rather than earlier boot messages.
+- Clear retained tty1 framebuffer text after both its recovery getty and
+  MarqueeMark have settled, avoiding a race where agetty repainted its login
+  banner after the original pre-start clear.
 - Validate sudoers rules before installing them.
 
 - Finalised the built-in Neo Geo 1 Slot, 2 Slot, 4 Slot, and 6 Slot artwork,

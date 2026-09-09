@@ -346,10 +346,11 @@ Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=SDL_AUDIODRIVER=dummy
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=$INSTALL_DIR
-# Clear tty1 only after its recovery getty has started. The escape sequence
-# erases retained boot text without stopping the getty or removing the tty.
-ExecStartPre=+/bin/sh -c 'printf "\\x1b[2J\\x1b[H" > /dev/tty1'
 ExecStart=/usr/bin/python3 $INSTALL_DIR/marqueemark.py $RUN_ARGS
+# systemd considers getty started before agetty has necessarily printed its
+# banner. Wait until both it and MarqueeMark have settled, then reset the
+# underlying tty buffer while KMS owns the visible display.
+ExecStartPost=+/bin/sh -c 'sleep 2; printf "\\x1bc\\x1b[2J\\x1b[H" > /dev/tty1'
 # Pygame restores the text console while exiting, so blank only after its
 # process is gone. Plymouth then owns a black reboot/shutdown background.
 ExecStopPost=-/bin/sh -c 'printf 1 | /usr/bin/sudo -n /usr/bin/tee /sys/class/graphics/fb0/blank >/dev/null'
